@@ -1,0 +1,7 @@
+venv/
+.venv/
+tf_env/
+__pycache__/
+*.pyc
+.DS_Store
+corn_model.h5
