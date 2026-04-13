@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFilter
 import streamlit as st
 
 st.set_page_config(
-    page_title="CornScan AI",
+    page_title="Corn",
     page_icon="🌽",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -1118,3 +1118,4 @@ elif st.session_state.page == "landing":
     landing_page()
 else:
     main_app()
+     
