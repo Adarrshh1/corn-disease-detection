@@ -713,7 +713,7 @@ def landing_page():
 """, unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1.4, 2, 1.4])
     with c2:
-        if st.button("🚀  Launch CornScan AI v6", use_container_width=True):
+        if st.button("🚀  Lets Go", use_container_width=True):
             st.session_state.page = "main"
             st.rerun()
     st.markdown('<div style="position:relative;z-index:1;text-align:center;margin-top:.8rem;font-size:.63rem;color:var(--c4);font-family:var(--mono);">Powered by CornScan AI Engine · TensorFlow · Keras · Streamlit · No data leaves your device</div>', unsafe_allow_html=True)
