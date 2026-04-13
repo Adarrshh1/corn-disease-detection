@@ -513,8 +513,7 @@ def landing_page():
     with c2:
         if st.button("🌿  Let's Go", use_container_width=True):
             st.session_state.page = "main"
-            st.rerun()
-
+st.experimental_rerun()
     st.markdown("""
 <div style="text-align:center;margin-top:.8rem;font-size:.65rem;color:#333;font-family:'DM Mono',monospace;">
 Powered by TensorFlow · Keras · Streamlit &nbsp;·&nbsp; No data leaves your device
