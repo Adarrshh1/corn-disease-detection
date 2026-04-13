@@ -2,8 +2,7 @@ services:
   - type: web
     name: cornscan-ai
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.10.12
+    buildCommand: |
+      pip install -r requirements.txt
+    startCommand: |
+      streamlit run app.py --server.port $PORT --server.address 0.0.0.0
