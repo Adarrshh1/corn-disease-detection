@@ -1022,4 +1022,4 @@ def main_app():
 if st.session_state.page == "landing":
     landing_page()
 else:
-    main_app()
+    main_app() 
