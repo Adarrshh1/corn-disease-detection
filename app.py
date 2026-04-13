@@ -2,10 +2,9 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║  CornScan AI  ·  app.py  (v5.0 — Ultimate Edition)             ║
 ║  Dark cyber-agri landing → Clinical white diagnosis dashboard   ║
-║  All 10 enhancements applied                                    ║
+║  All 10 enhancements applied  · Bugs fixed                      ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
-
 import os
 import io
 import base64
@@ -44,7 +43,6 @@ for key, default in [
 
 # ── Constants ──────────────────────────────────────────────────────────────
 CLASSES = ["Blight", "Common Rust", "Gray Leaf Spot", "Healthy"]
-
 DISEASE_INFO = {
     "Blight": {
         "icon": "🍂", "severity": "HIGH", "sev_color": "#ef4444", "sev_bg": "rgba(239,68,68,.1)",
@@ -95,7 +93,6 @@ DISEASE_INFO = {
         "weather_risk": "No elevated risk detected",
     },
 }
-
 AGRO_TIPS = [
     "💧 Water in the morning to reduce leaf wetness duration overnight.",
     "🌬️ Ensure plant spacing allows airflow — fungal spores love stagnant humid air.",
@@ -145,9 +142,9 @@ def make_heatmap(img: Image.Image) -> str:
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     for cx, cy, col, radii in [
-        (int(w*.44), int(h*.40), (255, 50, 50), [(80,55),(52,85),(30,110),(14,75)]),
-        (int(w*.62), int(h*.62), (255, 130, 0), [(48,45),(28,72),(12,50)]),
-        (int(w*.28), int(h*.55), (255, 80, 0),  [(35,35),(18,55)]),
+        (int(w*.44), int(h*.40), (255, 50, 50),  [(80,55),(52,85),(30,110),(14,75)]),
+        (int(w*.62), int(h*.62), (255, 130, 0),  [(48,45),(28,72),(12,50)]),
+        (int(w*.28), int(h*.55), (255, 80, 0),   [(35,35),(18,55)]),
     ]:
         for r, a in radii:
             draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(*col, a))
@@ -196,7 +193,6 @@ def result_to_html_report(r):
 <footer>CornScan AI v5.0 · TensorFlow/Keras · Generated {r['ts']}</footer>
 </body></html>"""
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  CSS BLOCKS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -216,7 +212,6 @@ LANDING_CSS = """<style>
 }
 html,body,[class*="css"]{font-family:var(--font)!important;background:#000!important;color:var(--cream)!important;}
 .stApp{background:#000!important;min-height:100vh;}
-
 .lp-bg{position:fixed;inset:0;z-index:0;pointer-events:none;
   background:radial-gradient(ellipse 70% 55% at 10% -5%,rgba(74,222,128,.09) 0%,transparent 55%),
              radial-gradient(ellipse 55% 45% at 90% 105%,rgba(134,239,172,.06) 0%,transparent 50%),#000;}
@@ -231,7 +226,6 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:#000!impor
   background:linear-gradient(90deg,transparent,rgba(134,239,172,.5),transparent);
   animation:scanLine 7s linear infinite;}
 @keyframes scanLine{0%{top:-2px}100%{top:100vh}}
-
 .lp-wrap{position:relative;z-index:1;min-height:95vh;display:flex;flex-direction:column;
   align-items:center;justify-content:center;padding:3.5rem 1.5rem 2.5rem;text-align:center;
   animation:fadeUp .9s cubic-bezier(.22,1,.36,1) both;}
@@ -243,7 +237,6 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:#000!impor
 @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 @keyframes countUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes borderGlow{0%,100%{border-color:rgba(134,239,172,.2)}50%{border-color:rgba(134,239,172,.5)}}
-
 .lp-orb-wrap{position:relative;width:140px;height:140px;margin-bottom:2.2rem;}
 .lp-r1,.lp-r2,.lp-r3{position:absolute;border-radius:50%;border:1px solid rgba(134,239,172,.15);}
 .lp-r1{inset:-14px;animation:ringPulse 3.5s ease-in-out infinite;}
@@ -254,14 +247,12 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:#000!impor
   border:1px solid rgba(134,239,172,.28);display:flex;align-items:center;justify-content:center;font-size:3.8rem;
   box-shadow:0 0 90px rgba(134,239,172,.14),inset 0 1px 0 rgba(255,255,255,.1);
   animation:floatY 4.5s ease-in-out infinite,glowPulse 4s ease-in-out infinite;}
-
 .lp-pill{display:inline-flex;align-items:center;gap:.5rem;
   background:rgba(134,239,172,.05);border:1px solid rgba(134,239,172,.2);
   border-radius:999px;padding:.28rem 1.2rem;font-size:.64rem;font-weight:500;
   color:var(--g);letter-spacing:.13em;text-transform:uppercase;font-family:var(--mono);margin-bottom:1.3rem;}
 .lp-pill-dot{width:7px;height:7px;border-radius:50%;background:var(--g);
   box-shadow:0 0 6px var(--g);animation:glowPulse 2s ease-in-out infinite;}
-
 .lp-title{font-family:var(--disp);font-size:clamp(3.2rem,9vw,5.8rem);
   font-weight:800;letter-spacing:-.065em;line-height:.92;margin-bottom:.7rem;color:#fff;}
 .lp-grad{background:linear-gradient(135deg,#86efac 0%,#4ade80 40%,#a3e635 80%,#86efac 100%);
@@ -269,7 +260,6 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:#000!impor
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
 .lp-sub{font-size:1.05rem;color:var(--c3);font-weight:300;line-height:1.8;
   max-width:440px;margin:0 auto 2.2rem;}
-
 .lp-ticker-wrap{width:100%;overflow:hidden;margin-bottom:2.4rem;
   border-top:1px solid rgba(134,239,172,.07);border-bottom:1px solid rgba(134,239,172,.07);
   padding:.55rem 0;position:relative;}
@@ -280,12 +270,10 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:#000!impor
 .lp-ticker{display:flex;gap:3.5rem;width:max-content;animation:ticker 32s linear infinite;}
 .lp-tick{font-size:.63rem;font-family:var(--mono);color:var(--c4);letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;}
 .lp-tick b{color:var(--g);margin-right:.35rem;}
-
 .lp-stats{display:flex;gap:3rem;justify-content:center;margin-bottom:2.5rem;}
 .lp-stat-n{font-family:var(--disp);font-size:2.3rem;font-weight:800;color:#fff;letter-spacing:-.07em;line-height:1;animation:countUp .8s ease both;}
 .lp-stat-l{font-size:.62rem;color:var(--c4);font-family:var(--mono);margin-top:.25rem;letter-spacing:.09em;text-transform:uppercase;}
 .lp-sep{width:1px;background:rgba(255,255,255,.07);}
-
 .lp-feats{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin-bottom:2.5rem;width:100%;max-width:640px;}
 .lp-feat{background:rgba(255,255,255,.028);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   border:1px solid rgba(255,255,255,.06);border-radius:18px;padding:1.3rem 1.1rem;
@@ -299,7 +287,6 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:#000!impor
 .lp-feat-ico{font-size:1.5rem;margin-bottom:.5rem;}
 .lp-feat-t{font-family:var(--disp);font-size:.8rem;font-weight:700;color:var(--c2);margin-bottom:.25rem;}
 .lp-feat-d{font-size:.67rem;color:var(--c4);line-height:1.6;}
-
 .stButton>button{
   font-family:var(--disp)!important;font-weight:800!important;font-size:1.05rem!important;
   letter-spacing:.01em!important;border-radius:16px!important;
@@ -363,7 +350,6 @@ MAIN_CSS = """<style>
 }
 html,body,[class*="css"]{font-family:var(--font)!important;background:var(--bg0)!important;color:var(--ink)!important;}
 .stApp{background:var(--bg0)!important;min-height:100vh;}
-
 .stButton>button{
   font-family:var(--disp)!important;font-weight:700!important;font-size:.88rem!important;
   border-radius:var(--r)!important;border:1.5px solid rgba(22,163,74,.28)!important;
@@ -375,20 +361,17 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:var(--bg0)
   background:linear-gradient(135deg,rgba(22,163,74,.16),rgba(74,222,128,.1))!important;
   border-color:rgba(22,163,74,.5)!important;box-shadow:var(--shm)!important;transform:translateY(-2px)!important;}
 .stButton>button:active{transform:scale(.98)!important;}
-
 [data-testid="stFileUploader"] section{
   background:var(--bg2)!important;border:2.5px dashed rgba(22,163,74,.2)!important;
   border-radius:var(--rxl)!important;padding:2.8rem!important;transition:all .3s!important;}
 [data-testid="stFileUploader"] section:hover{
   border-color:rgba(22,163,74,.52)!important;background:rgba(22,163,74,.025)!important;
   box-shadow:0 0 0 5px rgba(22,163,74,.06),var(--shm)!important;transform:scale(1.006)!important;}
-
 details{background:var(--bg2)!important;border:1px solid var(--bd)!important;border-radius:var(--r)!important;margin-bottom:.5rem!important;box-shadow:var(--sh)!important;}
 details summary{color:var(--c2)!important;font-weight:600!important;font-size:.85rem!important;padding:.9rem 1.1rem!important;}
 details[open]{border-color:rgba(22,163,74,.18)!important;}
 .stProgress>div>div{background:linear-gradient(90deg,var(--g),var(--gm))!important;border-radius:999px!important;}
 .stProgress>div{background:rgba(0,0,0,.06)!important;border-radius:999px!important;height:5px!important;}
-
 @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes barGrow{from{width:0}}
@@ -396,9 +379,7 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
 @keyframes countUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 rgba(22,163,74,.3)}60%{box-shadow:0 0 0 8px transparent}}
 @keyframes cardSlide{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:translateX(0)}}
-@keyframes hoverLift{to{transform:translateY(-4px);box-shadow:var(--shl)}}
 @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-
 .app-topbar{display:flex;align-items:center;gap:.8rem;padding:1.4rem 0 .7rem;
   border-bottom:1px solid var(--bd);margin-bottom:1.6rem;animation:fadeIn .4s ease both;}
 .app-logo{width:38px;height:38px;border-radius:12px;
@@ -411,11 +392,9 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
   font-family:var(--mono);color:var(--g);background:rgba(22,163,74,.08);
   border:1px solid rgba(22,163,74,.18);border-radius:999px;padding:.2rem .85rem;}
 .app-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--g);animation:glowPulse 2s infinite;}
-
 .sec-lbl{display:flex;align-items:center;gap:.55rem;font-size:.6rem;font-weight:700;
   letter-spacing:.17em;text-transform:uppercase;color:var(--c4);font-family:var(--mono);margin-bottom:.7rem;}
 .sec-lbl::after{content:'';flex:1;height:1px;background:var(--bd);}
-
 .stats-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:.55rem;margin-bottom:1.6rem;}
 .stat-box{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);
   padding:.9rem .5rem;text-align:center;box-shadow:var(--sh);transition:all .22s;cursor:default;}
@@ -423,16 +402,13 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
 .stat-n{font-family:var(--disp);font-size:1.55rem;font-weight:800;color:var(--g);
   letter-spacing:-.055em;line-height:1;animation:countUp .6s ease both;}
 .stat-l{font-size:.58rem;color:var(--c4);margin-top:.18rem;letter-spacing:.07em;text-transform:uppercase;font-family:var(--mono);}
-
 .health-meter{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rl);
   padding:1.15rem 1.5rem;margin-bottom:.8rem;box-shadow:var(--sh);display:flex;align-items:center;gap:1.1rem;}
 .health-bar{flex:1;height:9px;background:rgba(0,0,0,.06);border-radius:999px;overflow:hidden;}
 .health-fill{height:100%;border-radius:999px;transition:width 1s cubic-bezier(.4,0,.2,1);}
-
 .tip-box{background:linear-gradient(135deg,rgba(22,163,74,.055),rgba(74,222,128,.025));
   border:1px solid rgba(22,163,74,.14);border-radius:var(--r);padding:.75rem 1.1rem;
   margin-bottom:.8rem;font-size:.78rem;color:var(--c2);display:flex;align-items:flex-start;gap:.55rem;}
-
 .img-wrap{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rxl);
   overflow:hidden;box-shadow:var(--shm);animation:fadeIn .35s ease both;transition:all .22s;}
 .img-wrap:hover{transform:scale(1.025);box-shadow:var(--shl);}
@@ -440,8 +416,6 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
   font-family:var(--mono);display:flex;align-items:center;justify-content:space-between;background:var(--bg3);}
 .img-badge{background:rgba(22,163,74,.1);color:var(--g);border:1px solid rgba(22,163,74,.2);
   border-radius:999px;font-size:.62rem;padding:.06rem .55rem;font-weight:600;}
-
-/* RESULT CARD */
 .result-card{background:var(--bg2);border-radius:var(--rxl);padding:2.2rem 2.4rem;
   box-shadow:var(--shl);animation:fadeUp .55s cubic-bezier(.22,1,.36,1) both;
   position:relative;overflow:hidden;margin-bottom:1rem;border:1.5px solid rgba(22,163,74,.15);}
@@ -452,14 +426,12 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
 .rc-warn{border-color:rgba(217,119,6,.18);}
 .rc-bad::before{background:linear-gradient(90deg,#b91c1c,#ef4444,#f87171);}
 .rc-bad{border-color:rgba(220,38,38,.18);}
-
 .dis-badge{display:inline-flex;align-items:center;gap:.4rem;font-size:.65rem;font-weight:800;
   letter-spacing:.1em;text-transform:uppercase;padding:.28rem 1rem;border-radius:999px;
   margin-bottom:.9rem;font-family:var(--mono);}
 .urg-pill{display:inline-flex;align-items:center;gap:.35rem;font-size:.6rem;font-weight:700;
   letter-spacing:.1em;text-transform:uppercase;padding:.2rem .8rem;border-radius:999px;
   font-family:var(--mono);margin-left:.5rem;border:1.5px solid;}
-
 .conf-ring-wrap{display:flex;align-items:center;gap:1.8rem;margin-bottom:1.4rem;}
 .conf-ring{position:relative;width:88px;height:88px;flex-shrink:0;}
 .conf-ring svg{transform:rotate(-90deg);}
@@ -469,29 +441,23 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
 .conf-ring-lbl{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
 .cpct{font-family:var(--disp);font-size:1.25rem;font-weight:800;letter-spacing:-.06em;line-height:1;}
 .csub{font-size:.52rem;color:var(--c4);font-family:var(--mono);letter-spacing:.06em;}
-
 .sev-track{height:8px;background:rgba(0,0,0,.06);border-radius:999px;overflow:hidden;margin:.3rem 0 1.2rem;}
 .sev-fill{height:100%;border-radius:999px;animation:barGrow .9s cubic-bezier(.4,0,.2,1) .4s both;}
-
 .metric-row{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-bottom:1.2rem;}
 .metric-box{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rl);
   padding:.8rem 1rem;text-align:center;transition:all .18s;}
 .metric-box:hover{border-color:rgba(22,163,74,.2);transform:translateY(-2px);box-shadow:var(--sh);}
 .metric-n{font-family:var(--disp);font-size:1.15rem;font-weight:800;letter-spacing:-.045em;line-height:1;}
 .metric-l{font-size:.58rem;color:var(--c4);font-family:var(--mono);letter-spacing:.07em;text-transform:uppercase;margin-top:.12rem;}
-
 .treat-card{background:linear-gradient(135deg,rgba(22,163,74,.055),rgba(74,222,128,.025));
   border:1px solid rgba(22,163,74,.16);border-radius:var(--rl);padding:1rem 1.2rem;margin-bottom:.8rem;}
 .treat-title{font-size:.6rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
   color:var(--g);font-family:var(--mono);margin-bottom:.5rem;}
 .treat-body{font-size:.82rem;color:var(--c2);line-height:1.7;}
-
 .wx-card{background:linear-gradient(135deg,rgba(59,130,246,.06),rgba(147,197,253,.03));
   border:1px solid rgba(59,130,246,.16);border-radius:var(--r);
   padding:.75rem 1.1rem;margin-bottom:.8rem;font-size:.78rem;color:var(--c2);
   display:flex;align-items:flex-start;gap:.55rem;}
-
-/* compare panel */
 .cmp-panel{display:grid;grid-template-columns:1fr 1fr;gap:1rem;
   background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rxl);
   padding:1.2rem;box-shadow:var(--shm);margin-bottom:1rem;animation:fadeUp .5s ease both;}
@@ -500,16 +466,12 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
 .cmp-img{width:100%;border-radius:12px;display:block;}
 .heat-label{position:absolute;top:.5rem;left:.5rem;background:rgba(0,0,0,.65);color:#fff;
   font-size:.6rem;font-family:var(--mono);padding:.18rem .55rem;border-radius:6px;letter-spacing:.08em;}
-
-/* prob bars */
 .pb-row{display:flex;align-items:center;gap:.7rem;margin-bottom:.5rem;animation:cardSlide .4s ease both;}
 .pb-name{font-size:.72rem;font-family:var(--mono);color:var(--c3);width:120px;flex-shrink:0;}
 .pb-tr{flex:1;height:5px;background:rgba(0,0,0,.06);border-radius:999px;overflow:hidden;}
 .pb-fill{height:100%;border-radius:999px;background:rgba(0,0,0,.1);animation:barGrow .7s cubic-bezier(.4,0,.2,1) both;}
 .pb-hi{background:linear-gradient(90deg,var(--g),var(--gm))!important;}
 .pb-pct{font-size:.7rem;font-family:var(--mono);color:var(--c3);width:38px;text-align:right;flex-shrink:0;}
-
-/* charts */
 .chart-wrap{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rxl);
   padding:1.3rem 1.5rem;box-shadow:var(--sh);margin-bottom:.8rem;}
 .chart-title{font-size:.6rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
@@ -518,8 +480,6 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
 .donut-legend{display:flex;flex-direction:column;gap:.5rem;}
 .d-leg{display:flex;align-items:center;gap:.5rem;font-size:.75rem;color:var(--c2);}
 .d-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
-
-/* info grid */
 .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-top:.9rem;}
 .info-card{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rl);
   padding:1.15rem 1.2rem;transition:all .2s;}
@@ -532,8 +492,6 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
 .fun-fact{background:linear-gradient(135deg,rgba(22,163,74,.055),rgba(74,222,128,.025));
   border-left:3px solid var(--g);border-radius:0 var(--r) var(--r) 0;
   padding:.7rem .95rem;margin-top:.75rem;font-size:.77rem;color:var(--c2);font-style:italic;}
-
-/* history */
 .hist-row{display:flex;align-items:center;gap:.8rem;padding:.7rem 1rem;
   background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);
   margin-bottom:.42rem;font-size:.8rem;box-shadow:var(--sh);transition:all .2s;animation:fadeIn .3s ease both;}
@@ -545,18 +503,15 @@ details[open]{border-color:rgba(22,163,74,.18)!important;}
 .ht-ok{background:rgba(22,163,74,.1);color:var(--g);border:1px solid rgba(22,163,74,.22);}
 .ht-bad{background:var(--redbg);color:var(--red);border:1px solid rgba(220,38,38,.22);}
 .ht-warn{background:var(--amrbg);color:var(--amr);border:1px solid rgba(217,119,6,.22);}
-
 .app-footer{text-align:center;padding:2.2rem 0 1.4rem;font-size:.65rem;color:var(--c4);
   font-family:var(--mono);border-top:1px solid var(--bd);margin-top:2.5rem;line-height:2.2;}
 </style>"""
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  LANDING PAGE
 # ══════════════════════════════════════════════════════════════════════════════
 def landing_page():
     st.markdown(SHARED_CSS + LANDING_CSS, unsafe_allow_html=True)
-
     tick_items = "".join(
         f'<span class="lp-tick"><b>◆</b>{t}</span>'
         for t in [
@@ -565,7 +520,6 @@ def landing_page():
             "PDF Export","AI Heatmap","Field Analytics","Treatment Advice",
         ] * 2
     )
-
     st.markdown(f"""
 <div class="lp-bg"></div>
 <div class="lp-grid"></div>
@@ -633,8 +587,9 @@ def main_app():
   <div class="app-badge"><span class="app-badge-dot"></span> AI Engine Active</div>
 </div>""", unsafe_allow_html=True)
 
-    bc, _, _ = st.columns([1, 4, 1])
-    with bc:
+    # FIX: renamed column variable from bc → home_col to avoid collision with sev_color variable bc
+    home_col, _, _ = st.columns([1, 4, 1])
+    with home_col:
         if st.button("← Home"):
             st.session_state.page = "landing"
             st.session_state.results = []
@@ -693,7 +648,7 @@ def main_app():
   </span>
 </div>""", unsafe_allow_html=True)
 
-    demo_cols = st.columns(4)
+    demo_cols   = st.columns(4)
     demo_labels = list(DISEASE_INFO.keys())
     demo_clicked = None
     for col, lbl in zip(demo_cols, demo_labels):
@@ -715,22 +670,22 @@ def main_app():
     # Demo mode handler
     if demo_clicked:
         lbl = demo_clicked
-        fake_img = Image.new("RGB", (224, 224), (30 if lbl=="Healthy" else 100, 80, 40))
+        fake_img  = Image.new("RGB", (224, 224), (30 if lbl=="Healthy" else 100, 80, 40))
         demo_conf = round(np.random.uniform(0.83, 0.97), 3)
-        probs = {c: round(np.random.uniform(.01, .05), 3) for c in CLASSES}
+        probs     = {c: round(np.random.uniform(.01, .05), 3) for c in CLASSES}
         probs[lbl] = demo_conf
-        tot = sum(probs.values())
-        probs = {k: v/tot for k, v in probs.items()}
-        ts = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
-        info = DISEASE_INFO[lbl]
-        status = "ok" if lbl == "Healthy" else ("warn" if info["severity"] == "MEDIUM" else "bad")
+        tot        = sum(probs.values())
+        probs      = {k: v/tot for k, v in probs.items()}
+        ts         = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
+        info       = DISEASE_INFO[lbl]
+        status     = "ok" if lbl == "Healthy" else ("warn" if info["severity"] == "MEDIUM" else "bad")
         st.session_state.results = [dict(fname=f"demo_{lbl}.jpg", img=fake_img, label=lbl,
-                                          conf=demo_conf, all_probs=probs, ts=ts, info=info, status=status)]
+            conf=demo_conf, all_probs=probs, ts=ts, info=info, status=status)]
         st.session_state.history.insert(0, dict(label=lbl, conf=demo_conf, ts=ts,
-                                                  fname=f"demo_{lbl}.jpg", status=status, info=info))
-        st.session_state.scanned += 1
+            fname=f"demo_{lbl}.jpg", status=status, info=info))
+        st.session_state.scanned   += 1
         st.session_state.tip_index += 1
-        st.session_state.streak = (st.session_state.streak + 1) if lbl == "Healthy" else 0
+        st.session_state.streak     = (st.session_state.streak + 1) if lbl == "Healthy" else 0
 
     elif uploaded_files:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -745,20 +700,25 @@ def main_app():
                 with cols[i]:
                     st.markdown('<div class="img-wrap">', unsafe_allow_html=True)
                     st.image(img, use_container_width=True)
-                    st.markdown(f'<div class="img-foot"><span>{f.name[:22]}</span><span class="img-badge">{w}×{h}</span></div>',
-                                unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="img-foot"><span>{f.name[:22]}</span>'
+                        f'<span class="img-badge">{w}×{h}</span></div>',
+                        unsafe_allow_html=True)
                     st.markdown("</div>", unsafe_allow_html=True)
             except Exception:
                 cols[i].error(f"Bad file: {f.name}")
         for f in uploaded_files[3:]:
             try:
-                f.seek(0); valid.append((f.name, Image.open(f).convert("RGB")))
+                f.seek(0)
+                valid.append((f.name, Image.open(f).convert("RGB")))
             except Exception:
                 pass
         if len(uploaded_files) > 3:
             st.caption(f"+{len(uploaded_files)-3} more file(s) queued")
         st.markdown("<br>", unsafe_allow_html=True)
-        analyze = st.button(f"🔬  Analyze {len(valid)} Image{'s' if len(valid)>1 else ''}", use_container_width=True)
+        analyze = st.button(
+            f"🔬  Analyze {len(valid)} Image{'s' if len(valid)>1 else ''}",
+            use_container_width=True)
     else:
         st.markdown("""<div style="text-align:center;padding:2rem 0 1rem;
           font-size:.82rem;color:var(--c4);font-family:var(--mono);">
@@ -771,24 +731,25 @@ def main_app():
         with st.spinner("🔬 Running deep CNN scan…"):
             for fname, img in valid:
                 label, conf, all_probs = predict(img)
-                ts = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
-                info = DISEASE_INFO[label]
+                ts     = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
+                info   = DISEASE_INFO[label]
                 status = "ok" if label == "Healthy" else ("warn" if info["severity"] == "MEDIUM" else "bad")
                 batch.append(dict(fname=fname, img=img, label=label, conf=conf,
-                                  all_probs=all_probs, ts=ts, info=info, status=status))
+                    all_probs=all_probs, ts=ts, info=info, status=status))
                 st.session_state.history.insert(0, dict(label=label, conf=conf, ts=ts,
-                                                         fname=fname, status=status, info=info))
-                st.session_state.scanned += 1
+                    fname=fname, status=status, info=info))
+                st.session_state.scanned   += 1
                 st.session_state.tip_index += 1
-                st.session_state.streak = (st.session_state.streak + 1) if label == "Healthy" else 0
+                st.session_state.streak     = (st.session_state.streak + 1) if label == "Healthy" else 0
         st.session_state.results = batch
 
-    # Streak
+    # Streak banner
     if st.session_state.streak >= 3:
         st.markdown(f"""
 <div style="background:linear-gradient(135deg,rgba(22,163,74,.09),rgba(74,222,128,.05));
   border:1px solid rgba(22,163,74,.2);border-radius:12px;padding:.8rem 1.2rem;
-  margin-bottom:.8rem;display:flex;align-items:center;gap:.65rem;font-size:.82rem;color:var(--g);animation:fadeIn .4s ease both;">
+  margin-bottom:.8rem;display:flex;align-items:center;gap:.65rem;font-size:.82rem;
+  color:var(--g);animation:fadeIn .4s ease both;">
   🔥 <strong>Healthy Streak:</strong> {st.session_state.streak} clean scans in a row!
 </div>""", unsafe_allow_html=True)
 
@@ -798,37 +759,37 @@ def main_app():
         st.markdown('<div class="sec-lbl">🧬 AI Diagnosis</div>', unsafe_allow_html=True)
 
         for r in st.session_state.results:
-            info   = r["info"]
-            pct    = r["conf"] * 100
-            status = r["status"]
-            sc     = {"ok":"rc-ok","warn":"rc-warn","bad":"rc-bad"}.get(status,"rc-ok")
-            bc     = info["sev_color"]
-            bg     = info["sev_bg"]
-            bd     = bc + "40"
-            circ   = 264
-            dash   = int(circ - (pct / 100) * circ)
-            sp_col = "#dc2626" if info["spread_risk"]>70 else ("#d97706" if info["spread_risk"]>40 else "#16a34a")
+            info      = r["info"]
+            pct       = r["conf"] * 100
+            status    = r["status"]
+            card_cls  = {"ok":"rc-ok","warn":"rc-warn","bad":"rc-bad"}.get(status,"rc-ok")
+            # FIX: renamed from bc → sev_col to avoid colliding with the home_col variable
+            sev_col   = info["sev_color"]
+            sev_bg    = info["sev_bg"]
+            sev_bd    = sev_col + "40"
+            circ      = 264
+            dash      = int(circ - (pct / 100) * circ)
+            sp_col    = "#dc2626" if info["spread_risk"]>70 else ("#d97706" if info["spread_risk"]>40 else "#16a34a")
 
             st.markdown(f"""
-<div class="result-card {sc}">
+<div class="result-card {card_cls}">
   <div style="margin-bottom:.9rem;display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;">
-    <span class="dis-badge" style="background:{bg};color:{bc};border:1.5px solid {bd};">
+    <span class="dis-badge" style="background:{sev_bg};color:{sev_col};border:1.5px solid {sev_bd};">
       {info['icon']} &nbsp;{info['short']}
     </span>
     <span class="urg-pill" style="color:{info['urgency_color']};border-color:{info['urgency_color']}44;background:{info['urgency_color']}12;">
       ◉ &nbsp;{info['urgency']}
     </span>
   </div>
-
   <div class="conf-ring-wrap">
     <div class="conf-ring">
       <svg width="88" height="88" viewBox="0 0 88 88">
         <circle class="crb" cx="44" cy="44" r="37"/>
-        <circle class="crf" cx="44" cy="44" r="37" stroke="{bc}"
+        <circle class="crf" cx="44" cy="44" r="37" stroke="{sev_col}"
           style="--dash:{dash};stroke-dashoffset:{dash};"/>
       </svg>
       <div class="conf-ring-lbl">
-        <span class="cpct" style="color:{bc};">{pct:.0f}%</span>
+        <span class="cpct" style="color:{sev_col};">{pct:.0f}%</span>
         <span class="csub">CONF</span>
       </div>
     </div>
@@ -841,7 +802,6 @@ def main_app():
       <div style="font-size:.72rem;color:var(--c3);font-family:var(--mono);">🕐 {r['ts']} &nbsp;·&nbsp; 📄 {r['fname']}</div>
     </div>
   </div>
-
   <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.28rem;">
     <span style="font-size:.6rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
       color:var(--c4);font-family:var(--mono);">Spread Risk Index</span>
@@ -850,18 +810,15 @@ def main_app():
   <div class="sev-track">
     <div class="sev-fill" style="width:{info['spread_risk']}%;background:linear-gradient(90deg,{sp_col},{sp_col}88);"></div>
   </div>
-
   <div class="metric-row">
     <div class="metric-box"><div class="metric-n" style="color:{sp_col};">{info['spread_risk']}%</div><div class="metric-l">Spread Risk</div></div>
     <div class="metric-box"><div class="metric-n" style="color:var(--amr);">{info['treatment_window']}</div><div class="metric-l">Treat Within</div></div>
     <div class="metric-box"><div class="metric-n" style="color:var(--red);">{info['economic_loss']}</div><div class="metric-l">Yield Loss</div></div>
   </div>
-
   <div class="treat-card">
     <div class="treat-title">💊 Recommended Treatment</div>
     <div class="treat-body">{info['treatment']}</div>
   </div>
-
   <div class="wx-card">
     <span style="font-size:1.1rem;">🌤️</span>
     <div>
@@ -901,7 +858,6 @@ def main_app():
 
             # Probability breakdown + charts
             with st.expander("📊 Confidence breakdown & charts"):
-                # Bars
                 bar_html = ""
                 for cls in CLASSES:
                     p  = r["all_probs"][cls]
@@ -913,22 +869,23 @@ def main_app():
   <span class="pb-pct">{p*100:.1f}%</span>
 </div>"""
 
-                # SVG donut
                 DCOLS = {"Blight":"#ef4444","Common Rust":"#f97316","Gray Leaf Spot":"#8b5cf6","Healthy":"#22c55e"}
-                circ_d = 2 * 3.14159 * 50
+                circ_d   = 2 * 3.14159 * 50
                 offset_d = 0
-                segs = ""
+                segs     = ""
                 for cls in CLASSES:
-                    p = r["all_probs"][cls]
+                    p   = r["all_probs"][cls]
                     seg = p * circ_d
-                    segs += f'<circle cx="70" cy="70" r="50" fill="none" stroke="{DCOLS[cls]}" stroke-width="16" stroke-dasharray="{seg:.2f} {circ_d:.2f}" stroke-dashoffset="-{offset_d:.2f}" transform="rotate(-90 70 70)"/>'
+                    segs += (f'<circle cx="70" cy="70" r="50" fill="none" stroke="{DCOLS[cls]}" '
+                             f'stroke-width="16" stroke-dasharray="{seg:.2f} {circ_d:.2f}" '
+                             f'stroke-dashoffset="-{offset_d:.2f}" transform="rotate(-90 70 70)"/>')
                     offset_d += seg
 
                 leg = "".join(
-                    f'<div class="d-leg"><div class="d-dot" style="background:{DCOLS[c]};"></div><span>{c}: {r["all_probs"][c]*100:.1f}%</span></div>'
+                    f'<div class="d-leg"><div class="d-dot" style="background:{DCOLS[c]};"></div>'
+                    f'<span>{c}: {r["all_probs"][c]*100:.1f}%</span></div>'
                     for c in CLASSES
                 )
-
                 st.markdown(f"""
 <div class="chart-wrap">
   <div class="chart-title">Confidence Distribution — All Classes</div>
@@ -957,8 +914,9 @@ def main_app():
         st.markdown('<div class="sec-lbl">📚 Agronomic Intelligence</div>', unsafe_allow_html=True)
         seen = set()
         for r in st.session_state.results:
-            lbl = r["label"]
-            if lbl in seen: continue
+            lbl  = r["label"]
+            if lbl in seen:
+                continue
             seen.add(lbl)
             info = r["info"]
             sc   = info["sev_color"]
@@ -992,17 +950,18 @@ def main_app():
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">📜 Scan History & Trend</div>', unsafe_allow_html=True)
 
-        # Trend bars (last 10)
-        trend = list(reversed(st.session_state.history[:10]))
+        trend     = list(reversed(st.session_state.history[:10]))
         bar_items = ""
         for i, h in enumerate(trend):
             col = "#16a34a" if h["status"]=="ok" else ("#d97706" if h["status"]=="warn" else "#ef4444")
             bh  = max(6, int(h["conf"] * 62))
-            bar_items += f"""
-<div title="{h['info']['short']} {h['conf']*100:.1f}%"
-  style="flex:1;height:{bh}px;background:{col};border-radius:4px 4px 0 0;
-  opacity:.85;transition:opacity .2s;cursor:default;animation:barGrow .6s ease {i*.07:.2f}s both;"
-  onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.85"></div>"""
+            bar_items += (
+                f'<div title="{h["info"]["short"]} {h["conf"]*100:.1f}%" '
+                f'style="flex:1;height:{bh}px;background:{col};border-radius:4px 4px 0 0;'
+                f'opacity:.85;transition:opacity .2s;cursor:default;'
+                f'animation:barGrow .6s ease {i*.07:.2f}s both;" '
+                f'onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.85"></div>'
+            )
 
         st.markdown(f"""
 <div class="chart-wrap" style="margin-bottom:1rem;">
@@ -1038,8 +997,8 @@ def main_app():
             st.caption(f"+{len(st.session_state.history)-8} older entries")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        c1, _, _ = st.columns([1, 3, 1])
-        with c1:
+        clr_col, _, _ = st.columns([1, 3, 1])
+        with clr_col:
             if st.button("↺ Clear History"):
                 st.session_state.history = []
                 st.session_state.scanned = 0
@@ -1063,5 +1022,4 @@ def main_app():
 if st.session_state.page == "landing":
     landing_page()
 else:
-    main_app() 
- 
+    main_app()
