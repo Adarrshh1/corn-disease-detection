@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>🌽 Corn Disease Detection</title>
+
+<link rel="stylesheet"
+href="{{ url_for('static', filename='style.css') }}">
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>🌽 Corn Disease Detector</h1>
+
+<p class="subtitle">
+Upload a corn leaf image to detect disease using AI
+</p>
+
+<form
+action="/predict"
+method="post"
+enctype="multipart/form-data">
+
+<input
+type="file"
+name="file"
+id="fileInput"
+required>
+
+<br>
+
+<img id="preview">
+
+<br>
+
+<button type="submit">
+
+🔍 Predict Disease
+
+</button>
+
+</form>
+
+{% if prediction %}
+
+<div class="result">
+
+<h2>Prediction:</h2>
+
+<p>{{ prediction }}</p>
+
+</div>
+
+{% endif %}
+
+</div>
+
+<script
+src="{{ url_for('static', filename='script.js') }}">
+</script>
+
+</body>
+
+</html>
