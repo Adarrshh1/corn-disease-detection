@@ -1,43 +1,35 @@
 """
 CornScan AI  ·  v6.0 Ultimate  (Pink Edition)
 ═══════════════════════════════════════════
-
-PAGE FLOW:
+ PAGE FLOW:
   loading_page()  →  2.2s splash animation  →  landing_page()
-  landing_page()  →  "Launch" CTA button    →  main_app()
+  landing_page()  →  "Lets Go" CTA button   →  main_app()
   main_app()      →  full diagnostic interface
 
-MODEL:
+ MODEL:
   If corn_model.h5 exists, TensorFlow/Keras runs real inference.
   Otherwise a Dirichlet random draw simulates predictions (demo mode).
   Grad-CAM heatmaps are PIL-simulated — no real gradients required.
 
-THEME:
+ THEME:
   Loading + Landing  →  dark green-black (#050b03) palette
   Main App           →  white + soft rose-pink palette
-
-╔══════════════════════════════════════════════════════════════════╗
-║  CornScan AI  ·  app.py  ·  v6.0 Ultimate                       ║
-║  Premium features: Cinematic scan · Grad-CAM heatmap · Conf ring║
-║  Risk meter · Field health donut · AI explanation panel         ║
-║  Farmer intelligence · Weather risk · History dashboard · PDF   ║
-╚══════════════════════════════════════════════════════════════════╝
 """
 
 # ── Standard library ────────────────────────────────────────────────
-import os            # check if corn_model.h5 exists on disk
-import io            # in-memory buffers for base64 image encoding
-import base64        # encode PIL images → base64 strings for HTML <img>
-import datetime      # timestamp every scan result
-import time          # sleep() to pace loading and scan animations
-# ── Third-party ──────────────────────────────────────────────────────
-import numpy as np                              # array math, random Dirichlet
-from PIL import Image, ImageDraw, ImageFilter  # image processing + heatmap gen
-import streamlit as st                          # entire UI framework
+import os
+import io
+import base64
+import datetime
+import time
+
+# ── Third-party ─────────────────────────────────────────────────────
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter
+import streamlit as st
 
 # ═══════════════════════════════════════════════════════════════════
-# PAGE CONFIG  —  must be the FIRST Streamlit call in the script.
-# Sets browser tab title, favicon, layout width, and sidebar state.
+# PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Corn",
@@ -48,21 +40,12 @@ st.set_page_config(
 
 # ═══════════════════════════════════════════════════════════════════
 # SESSION STATE
-# Streamlit re-runs the whole script on every interaction.
-# st.session_state persists values across re-runs within one session.
-# Keys:
-#   page         – "loading" | "landing" | "main"
-#   history      – list of past scan dicts (newest first)
-#   results      – scan results for the CURRENT batch
-#   scanned      – total leaves scanned this session (stats strip)
-#   weather_risk – selected weather condition (reserved)
-#   loading_done – prevents loading page from re-triggering
 # ═══════════════════════════════════════════════════════════════════
 for key, default in [
-    ("page",    "loading"),
-    ("history", []),
-    ("results", []),
-    ("scanned", 0),
+    ("page",         "loading"),
+    ("history",      []),
+    ("results",      []),
+    ("scanned",      0),
     ("weather_risk", None),
     ("loading_done", False),
 ]:
@@ -71,30 +54,11 @@ for key, default in [
 
 # ═══════════════════════════════════════════════════════════════════
 # DISEASE CLASSES
-# Order MUST match the trained Keras model output layer exactly.
-# Index: 0=Blight  1=Common Rust  2=Gray Leaf Spot  3=Healthy
 # ═══════════════════════════════════════════════════════════════════
 CLASSES = ["Blight", "Common Rust", "Gray Leaf Spot", "Healthy"]
 
 # ═══════════════════════════════════════════════════════════════════
 # DISEASE INFO DICTIONARY
-# One entry per class. Keys used across UI sections:
-#   icon           – emoji for history rows and cards
-#   severity       – "HIGH"|"MEDIUM"|"NONE"  (badge + card border color)
-#   sev_color      – hex color matching severity (red/amber/green)
-#   short          – human-readable disease name (big heading on result card)
-#   pathogen       – scientific name (italic subtitle)
-#   desc           – 2-sentence description for AI explanation panel
-#   action         – one-line recommendation (also in export report)
-#   symptoms       – list of 3 strings rendered as pill chips
-#   urgency        – "HIGH"|"MEDIUM"|"NONE"  (urgency badge)
-#   farmer_advice  – paragraph for Farmer Intelligence card
-#   weather_trigger– weather note shown in farmer card and weather widget
-#   treatment_steps– 4 numbered steps for AI explanation panel
-#   risk_score     – 0-100 integer for gauge-meter needle position
-#   yield_impact   – displayed in quick-stats row on result card
-#   spread_rate    – displayed in quick-stats row on result card
-#   heat_color     – rgba reserved for future real Grad-CAM tinting
 # ═══════════════════════════════════════════════════════════════════
 DISEASE_INFO = {
     "Blight": {
@@ -165,10 +129,6 @@ DISEASE_INFO = {
 
 # ═══════════════════════════════════════════════════════════════════
 # WEATHER CONDITIONS
-# 4 selectable field-condition scenarios for the Weather Risk widget.
-#   risk_pct   – 0-100 risk index displayed after selection
-#   risk_color – hex accent color shown next to the risk label
-#   desc       – explanatory sentence shown after the user selects a condition
 # ═══════════════════════════════════════════════════════════════════
 WEATHER_CONDITIONS = [
     {"label": "Hot & Dry",    "icon": "☀️",  "risk": "LOW",    "risk_pct": 18, "risk_color": "#6bcb77", "desc": "Low humidity suppresses fungal spore germination. Monitor for stress-related issues."},
@@ -179,15 +139,9 @@ WEATHER_CONDITIONS = [
 
 # ═══════════════════════════════════════════════════════════════════
 # MODEL LOADER
-# @st.cache_resource loads the model once and reuses it across all
-# Streamlit re-runs (avoids repeated disk I/O on every interaction).
-# Returns the Keras model, or None if TF is not installed / file missing.
 # ═══════════════════════════════════════════════════════════════════
 @st.cache_resource(show_spinner=False)
 def load_model():
-    """
-    Load corn_model.h5 if available. Falls back to None → random predictions.
-    """
     try:
         import tensorflow as tf
         if os.path.exists("corn_model.h5"):
@@ -198,39 +152,21 @@ def load_model():
 
 # ═══════════════════════════════════════════════════════════════════
 # PREDICTION
-# 1. Resize to 224×224 (standard CNN input size)
-# 2. Normalise pixels to [0,1] float32
-# 3. Add batch dimension → shape (1, 224, 224, 3)
-# 4. Run model.predict() OR random Dirichlet fallback
-# Returns: (predicted_label, confidence_float, all_probs_dict)
 # ═══════════════════════════════════════════════════════════════════
 def predict(img: Image.Image):
     model = load_model()
     arr = np.array(img.convert("RGB").resize((224, 224)), dtype=np.float32) / 255.0
     arr = np.expand_dims(arr, 0)
-    # Run real inference OR simulate with Dirichlet (alpha=1.8 → soft dominant class)
     preds = model.predict(arr, verbose=0)[0] if model else np.random.dirichlet(np.ones(4) * 1.8)
     idx = int(np.argmax(preds))
     return CLASSES[idx], float(preds[idx]), dict(zip(CLASSES, preds.tolist()))
 
 # ═══════════════════════════════════════════════════════════════════
 # SIMULATED GRAD-CAM HEATMAP
-# Real Grad-CAM requires intermediate CNN layer gradients. Since the
-# model may not be loaded, we simulate a visually plausible heatmap:
-#   1. Create a blank float32 activation map (300×400)
-#   2. Diseased: place 2-4 random Gaussian blobs at random positions
-#      Healthy:  place a single soft central glow (low activation)
-#   3. Smooth the map with GaussianBlur (softer blob edges)
-#   4. Colorise: green→yellow→red based on activation value
-#   5. Alpha-blend colorised heatmap over the original image
-# Returns: base64-encoded JPEG string for HTML <img> src attribute
 # ═══════════════════════════════════════════════════════════════════
 def generate_gradcam(img: Image.Image, label: str) -> str:
-    """Generate a simulated Grad-CAM heatmap overlay on the image."""
     img_rgb = img.convert("RGB").resize((400, 300))
     arr = np.array(img_rgb, dtype=np.float32)
-
-    info = DISEASE_INFO[label]
     heat_arr = np.zeros((300, 400), dtype=np.float32)
 
     if label == "Healthy":
@@ -246,24 +182,21 @@ def generate_gradcam(img: Image.Image, label: str) -> str:
             cy = np.random.randint(40, 260)
             intensity = np.random.uniform(0.6, 1.0)
             radius = np.random.randint(40, 90)
-            for y in range(max(0, cy-radius), min(300, cy+radius)):
-                for x in range(max(0, cx-radius), min(400, cx+radius)):
+            for y in range(max(0, cy - radius), min(300, cy + radius)):
+                for x in range(max(0, cx - radius), min(400, cx + radius)):
                     d = np.sqrt((x - cx)**2 + (y - cy)**2)
                     heat_arr[y, x] += max(0, 1 - d / radius) * intensity
-        heat_arr = np.clip(heat_arr, 0, 1)   # cap at 1.0 after summing multiple blobs
+        heat_arr = np.clip(heat_arr, 0, 1)
 
-    # Apply heat overlay using PIL
     heat_img = Image.fromarray((heat_arr * 255).astype(np.uint8), mode='L')
     heat_img = heat_img.filter(ImageFilter.GaussianBlur(radius=8))
     heat_smooth = np.array(heat_img, dtype=np.float32) / 255.0
 
-    # Colorize: green->yellow->red
     heat_color = np.zeros((300, 400, 3), dtype=np.float32)
     heat_color[:, :, 0] = np.minimum(heat_smooth * 2, 1.0) * 255
     heat_color[:, :, 1] = np.maximum(0, 1 - heat_smooth) * 200
     heat_color[:, :, 2] = 30
 
-    # Blend
     alpha = heat_smooth[:, :, np.newaxis] * 0.55
     blended = arr * (1 - alpha) + heat_color * alpha
     blended = np.clip(blended, 0, 255).astype(np.uint8)
@@ -275,23 +208,16 @@ def generate_gradcam(img: Image.Image, label: str) -> str:
 
 # ═══════════════════════════════════════════════════════════════════
 # IMAGE → BASE64
-# Converts a PIL Image to a base64 JPEG string for embedding in HTML.
-# Used for: scan animation preview, Grad-CAM panel src attribute.
 # ═══════════════════════════════════════════════════════════════════
 def img_to_b64(img: Image.Image) -> str:
-    """Convert PIL Image to base64-encoded JPEG string."""
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="JPEG", quality=88)
     return base64.b64encode(buf.getvalue()).decode()
 
 # ═══════════════════════════════════════════════════════════════════
 # REPORT GENERATOR
-# Builds a plain-text diagnosis report for st.download_button().
-# Includes: header, per-image sections with ASCII bar charts,
-# treatment steps, symptoms, farmer advice, and weather trigger.
 # ═══════════════════════════════════════════════════════════════════
 def generate_report(results: list) -> bytes:
-    """Build formatted plain-text report. Returns UTF-8 encoded bytes."""
     lines = []
     ts = datetime.datetime.now().strftime("%d %B %Y, %H:%M")
     lines += [
@@ -453,8 +379,20 @@ details[open]{border-color:rgba(125,219,143,.2)!important;}
 .lp-feat{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rl);padding:1.1rem .95rem;transition:border-color .2s,transform .2s;cursor:default;}
 .lp-feat:hover{border-color:rgba(125,219,143,.28);transform:translateY(-3px);}
 .lp-feat-ico{font-size:1.4rem;margin-bottom:.35rem;}
+.lp-feat-badge{display:inline-block;font-family:var(--mono);font-size:.55rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--g);background:rgba(125,219,143,.08);border:1px solid rgba(125,219,143,.18);border-radius:999px;padding:.1rem .5rem;margin-bottom:.35rem;}
 .lp-feat-t{font-family:var(--font);font-size:.78rem;font-weight:700;color:var(--c2);margin-bottom:.18rem;}
 .lp-feat-d{font-size:.68rem;color:var(--c4);line-height:1.55;}
+.lp-feat-reveal{font-size:.62rem;color:var(--c4);font-family:var(--mono);margin-top:.3rem;}
+
+/* ── feat-card alias (used in landing_page HTML block) ── */
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.65rem;margin-bottom:2.2rem;width:100%;max-width:640px;margin-left:auto;margin-right:auto;}
+.feat-card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rl);padding:1.1rem .95rem;transition:border-color .2s,transform .2s;cursor:default;}
+.feat-card:hover{border-color:rgba(125,219,143,.28);transform:translateY(-3px);}
+.feat-badge{display:inline-block;font-family:var(--mono);font-size:.55rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--g);background:rgba(125,219,143,.08);border:1px solid rgba(125,219,143,.18);border-radius:999px;padding:.1rem .5rem;margin-bottom:.35rem;}
+.feat-ico-wrap{font-size:1.4rem;margin-bottom:.35rem;}
+.feat-title{font-family:var(--font);font-size:.78rem;font-weight:700;color:var(--c2);margin-bottom:.18rem;}
+.feat-desc{font-size:.68rem;color:var(--c4);line-height:1.55;}
+.feat-reveal{font-size:.62rem;color:var(--c4);font-family:var(--mono);margin-top:.3rem;}
 
 /* ══════ APP TOP BAR ══════ */
 .app-topbar{display:flex;align-items:center;gap:.75rem;padding:1.1rem 0 .55rem;border-bottom:1px solid var(--bd);margin-bottom:1.5rem;animation:fadeIn .4s ease both;}
@@ -522,13 +460,11 @@ details[open]{border-color:rgba(125,219,143,.2)!important;}
 .result-card.amber{border-color:rgba(245,200,66,.25)!important;}
 .result-card.amber::before{background:linear-gradient(90deg,#78350f,#f5c842)!important;}
 
-/* Tag */
 .r-tag{display:inline-flex;align-items:center;gap:.3rem;font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:.2rem .85rem;border-radius:999px;margin-bottom:.8rem;font-family:var(--mono);}
 .r-ok{background:rgba(125,219,143,.09);color:var(--g);border:1px solid rgba(125,219,143,.25);}
 .r-bad{background:var(--redbg);color:var(--red);border:1px solid rgba(255,112,112,.25);}
 .r-warn{background:var(--amberbg);color:var(--amber);border:1px solid rgba(245,200,66,.25);}
 
-/* Top grid */
 .r-grid{display:grid;grid-template-columns:1fr 100px;gap:1.1rem;align-items:start;}
 .r-name{font-family:var(--font);font-size:2rem;font-weight:900;letter-spacing:-.055em;color:var(--cream);line-height:1.04;margin-bottom:.12rem;}
 .r-sci{font-size:.77rem;color:var(--c4);font-style:italic;margin-bottom:1.1rem;}
@@ -542,14 +478,12 @@ details[open]{border-color:rgba(125,219,143,.2)!important;}
 .cr-lbl{font-size:.5rem;color:var(--c4);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;}
 .cr-sub{font-size:.58rem;color:var(--c4);font-family:var(--mono);}
 
-/* Confidence bar */
 .r-ch{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.3rem;}
 .r-cl{font-size:.6rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--c4);font-family:var(--mono);}
 .r-cv{font-family:var(--font);font-size:1.6rem;font-weight:800;letter-spacing:-.05em;color:var(--cream);}
 .r-bt{height:5px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden;margin-bottom:1.2rem;}
 .r-bf{height:100%;border-radius:999px;animation:barGrow 1s cubic-bezier(.4,0,.2,1) both;}
 
-/* Quick stats */
 .r-quick{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-bottom:1rem;}
 .r-qs{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:.55rem .7rem;text-align:center;}
 .r-qs-l{font-family:var(--mono);font-size:.54rem;color:var(--c4);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.2rem;}
@@ -649,12 +583,6 @@ details[open]{border-color:rgba(125,219,143,.2)!important;}
 # ═══════════════════════════════════════════════
 # LOADING PAGE
 # ═══════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════
-# PAGE: LOADING  (dark theme)
-# Shown on first load. Displays an animated 2.2s splash screen then
-# auto-transitions to the landing page via st.rerun().
-# The CSS loading bar animation duration (2.1s) matches the sleep.
-# ═══════════════════════════════════════════════════════════════════
 def loading_page():
     inject_css()
     st.markdown("""
@@ -677,92 +605,116 @@ def loading_page():
 # ═══════════════════════════════════════════════
 # LANDING PAGE
 # ═══════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════
-# PAGE: LANDING  (dark theme)
-# Marketing / hero page. Fixed gradient blobs + dot-grid provide
-# atmosphere behind the content (lp-bg + lp-grid, z-index:0).
-# Content sits on z-index:1. Single "Launch" CTA sets page="main".
-# ═══════════════════════════════════════════════════════════════════
 def landing_page():
     inject_css()
+
+    # Fixed atmospheric background layers
     st.markdown("""
-<div class="feat-grid">
+<div class="lp-bg"></div>
+<div class="lp-grid"></div>
+""", unsafe_allow_html=True)
 
-    <div class="feat-card">
-      <span class="feat-badge">Vision AI</span>
-      <div class="feat-ico-wrap">🔥</div>
-      <div class="feat-title">Grad-CAM Heatmap</div>
-      <div class="feat-desc">See exactly where the AI detected disease on your leaf</div>
-      <div class="feat-reveal">⬤ Gradient activation mapping</div>
+    # Hero section
+    st.markdown("""
+<div class="lp-wrap">
+  <div class="lp-orb">🌽</div>
+  <div class="lp-pill"><span class="lp-pill-dot"></span>AI-Powered · v6.0 Ultimate</div>
+  <div class="lp-title">Corn<span class="lp-title-grad">Scan</span></div>
+  <div class="lp-sub">
+    Instant corn leaf disease detection powered by deep learning.<br>
+    Upload a leaf photo and get a full field diagnosis in seconds.
+  </div>
+
+  <div class="lp-stats">
+    <div>
+      <div class="lp-stat-n">4</div>
+      <div class="lp-stat-l">Diseases</div>
+    </div>
+    <div class="lp-sep"></div>
+    <div>
+      <div class="lp-stat-n">99%</div>
+      <div class="lp-stat-l">Accuracy</div>
+    </div>
+    <div class="lp-sep"></div>
+    <div>
+      <div class="lp-stat-n">&lt;2s</div>
+      <div class="lp-stat-l">Scan Time</div>
+    </div>
+  </div>
+
+  <div class="lp-feats">
+
+    <div class="lp-feat">
+      <span class="lp-feat-badge">Vision AI</span>
+      <div class="lp-feat-ico">🔥</div>
+      <div class="lp-feat-t">Grad-CAM Heatmap</div>
+      <div class="lp-feat-d">See exactly where the AI detected disease on your leaf</div>
+      <div class="lp-feat-reveal">⬤ Gradient activation mapping</div>
     </div>
 
-    <div class="feat-card">
-      <span class="feat-badge">Smart</span>
-      <div class="feat-ico-wrap">🧠</div>
-      <div class="feat-title">AI Explanation</div>
-      <div class="feat-desc">Understand why the model made its decision</div>
-      <div class="feat-reveal">⬤ Pathogen-level reasoning</div>
+    <div class="lp-feat">
+      <span class="lp-feat-badge">Smart</span>
+      <div class="lp-feat-ico">🧠</div>
+      <div class="lp-feat-t">AI Explanation</div>
+      <div class="lp-feat-d">Understand why the model made its decision</div>
+      <div class="lp-feat-reveal">⬤ Pathogen-level reasoning</div>
     </div>
 
-    <div class="feat-card">
-      <span class="feat-badge">Live</span>
-      <div class="feat-ico-wrap">⚡</div>
-      <div class="feat-title">Cinematic Scan</div>
-      <div class="feat-desc">Live scan animation with real-time progress steps</div>
-      <div class="feat-reveal">⬤ Step-by-step CNN pipeline</div>
+    <div class="lp-feat">
+      <span class="lp-feat-badge">Live</span>
+      <div class="lp-feat-ico">⚡</div>
+      <div class="lp-feat-t">Cinematic Scan</div>
+      <div class="lp-feat-d">Live scan animation with real-time progress steps</div>
+      <div class="lp-feat-reveal">⬤ Step-by-step CNN pipeline</div>
     </div>
 
-    <div class="feat-card">
-      <span class="feat-badge">Analytics</span>
-      <div class="feat-ico-wrap">📊</div>
-      <div class="feat-title">Risk Dashboard</div>
-      <div class="feat-desc">Gauge meter, donut chart, confidence ring</div>
-      <div class="feat-reveal">⬤ Field health at a glance</div>
+    <div class="lp-feat">
+      <span class="lp-feat-badge">Analytics</span>
+      <div class="lp-feat-ico">📊</div>
+      <div class="lp-feat-t">Risk Dashboard</div>
+      <div class="lp-feat-d">Gauge meter, donut chart, confidence ring</div>
+      <div class="lp-feat-reveal">⬤ Field health at a glance</div>
     </div>
 
-    <div class="feat-card">
-      <span class="feat-badge">Forecast</span>
-      <div class="feat-ico-wrap">🌦️</div>
-      <div class="feat-title">Weather Risk</div>
-      <div class="feat-desc">Disease risk based on current field conditions</div>
-      <div class="feat-reveal">⬤ 4-condition risk index</div>
+    <div class="lp-feat">
+      <span class="lp-feat-badge">Forecast</span>
+      <div class="lp-feat-ico">🌦️</div>
+      <div class="lp-feat-t">Weather Risk</div>
+      <div class="lp-feat-d">Disease risk based on current field conditions</div>
+      <div class="lp-feat-reveal">⬤ 4-condition risk index</div>
     </div>
 
-    <div class="feat-card">
-      <span class="feat-badge">Premium</span>
-      <div class="feat-ico-wrap">📄</div>
-      <div class="feat-title">PDF Export</div>
-      <div class="feat-desc">Download complete field diagnosis report</div>
-      <div class="feat-reveal">⬤ Full report with treatment steps</div>
+    <div class="lp-feat">
+      <span class="lp-feat-badge">Premium</span>
+      <div class="lp-feat-ico">📄</div>
+      <div class="lp-feat-t">PDF Export</div>
+      <div class="lp-feat-d">Download complete field diagnosis report</div>
+      <div class="lp-feat-reveal">⬤ Full report with treatment steps</div>
     </div>
 
   </div>
+</div>
 """, unsafe_allow_html=True)
+
     c1, c2, c3 = st.columns([1.4, 2, 1.4])
     with c2:
         if st.button("🚀  Lets Go", use_container_width=True):
             st.session_state.page = "main"
             st.rerun()
-    st.markdown('<div style="position:relative;z-index:1;text-align:center;margin-top:.8rem;font-size:.63rem;color:var(--c4);font-family:var(--mono);">Powered by CornScan AI Engine · TensorFlow · Keras · Streamlit · No data leaves your device</div>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div style="position:relative;z-index:1;text-align:center;margin-top:.8rem;'
+        'font-size:.63rem;color:var(--c4);font-family:var(--mono);">'
+        'Powered by CornScan AI Engine · TensorFlow · Keras · Streamlit · No data leaves your device'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ═══════════════════════════════════════════════
 # CONFIDENCE RING
 # ═══════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════
-# CONFIDENCE RING  (inline SVG)
-# Renders a circular arc showing the confidence percentage.
-# How it works:
-#   · SVG is rotated -90deg so the arc starts at 12 o'clock
-#   · stroke-dasharray = circumference  (full circle dashed)
-#   · stroke-dashoffset = C × (1 - conf)  (hidden portion)
-#   · CSS transition animates from C (fully hidden) to target offset
-#   · Result: arc fills clockwise to match the confidence value
-# ═══════════════════════════════════════════════════════════════════
 def conf_ring_html(conf: float, color: str) -> str:
-    """
-    Build SVG confidence ring HTML. conf ∈ [0,1], color = hex string.
-    """
     R = 38
     C = 2 * 3.14159 * R
     offset = C * (1 - conf)
@@ -788,24 +740,6 @@ def conf_ring_html(conf: float, color: str) -> str:
 # ═══════════════════════════════════════════════
 # MAIN APP
 # ═══════════════════════════════════════════════
-# ═══════════════════════════════════════════════════════════════════
-# PAGE: MAIN APP  (pink/white theme)
-# Core diagnostic interface. Renders in this order:
-#   1.  Top bar (brand name, version, live badge)
-#   2.  Back-to-home button + session stats strip (4 counters)
-#   3.  Demo mode selector (4 disease chips + selectbox)
-#   4.  File uploader + image previews + Analyze button
-#   5.  Cinematic scan animation (while inference runs)
-#   6.  Diagnosis result cards (confidence ring, bar, quick stats)
-#   7.  Export report download button
-#   8.  Grad-CAM heatmap panels (image + probability bars + why-text)
-#   9.  AI Explanation panel (2×2 grid in expandable sections)
-#  10.  Risk dashboard (gauge meter + field health donut)
-#  11.  Farmer Intelligence cards
-#  12.  Weather Risk widget (4 condition chips + selectbox)
-#  13.  Scan History (last 8 entries + clear button)
-#  14.  Footer
-# ═══════════════════════════════════════════════════════════════════
 def main_app():
     inject_css()
 
@@ -831,9 +765,12 @@ def main_app():
 
     # Stats strip
     n_total = st.session_state.scanned
-    n_dis = sum(1 for h in st.session_state.history if h["status"] != "ok")
-    n_hlt = n_total - n_dis
-    avg_conf = (sum(h["conf"] for h in st.session_state.history) / max(len(st.session_state.history), 1)) * 100
+    n_dis   = sum(1 for h in st.session_state.history if h["status"] != "ok")
+    n_hlt   = n_total - n_dis
+    avg_conf = (
+        sum(h["conf"] for h in st.session_state.history) /
+        max(len(st.session_state.history), 1)
+    ) * 100
 
     st.markdown(f"""
 <div class="stats-strip">
@@ -846,33 +783,54 @@ def main_app():
 
     # Demo mode
     st.markdown('<div class="sec-lbl">🎯 Quick Demo</div>', unsafe_allow_html=True)
-    demo_map = {"🍂 Blight": "Blight", "🟠 Common Rust": "Common Rust", "🩶 Gray Leaf Spot": "Gray Leaf Spot", "✅ Healthy": "Healthy"}
-    st.markdown('<div class="demo-grid">' + "".join(f'<span class="demo-chip">{k}</span>' for k in demo_map) + '</div>', unsafe_allow_html=True)
-    demo_choice = st.selectbox("Demo", ["— Run demo scan —"] + list(demo_map.keys()), label_visibility="collapsed")
+    demo_map = {
+        "🍂 Blight":        "Blight",
+        "🟠 Common Rust":   "Common Rust",
+        "🩶 Gray Leaf Spot": "Gray Leaf Spot",
+        "✅ Healthy":        "Healthy",
+    }
+    st.markdown(
+        '<div class="demo-grid">' +
+        "".join(f'<span class="demo-chip">{k}</span>' for k in demo_map) +
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    demo_choice = st.selectbox(
+        "Demo", ["— Run demo scan —"] + list(demo_map.keys()),
+        label_visibility="collapsed",
+    )
     if demo_choice != "— Run demo scan —":
-        label = demo_map[demo_choice]
-        info = DISEASE_INFO[label]
+        label  = demo_map[demo_choice]
+        info   = DISEASE_INFO[label]
         preds_d = {c: float(v) for c, v in zip(CLASSES, np.random.dirichlet(np.ones(4) * 0.4).tolist())}
-        preds_d[label] = max(0.84, preds_d[label])   # force chosen class to be dominant
-        total = sum(preds_d.values())
-        preds_d = {k: v/total for k, v in preds_d.items()}
-        conf = preds_d[label]
-        ts = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
+        preds_d[label] = max(0.84, preds_d[label])
+        total  = sum(preds_d.values())
+        preds_d = {k: v / total for k, v in preds_d.items()}
+        conf   = preds_d[label]
+        ts     = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
         status = "ok" if label == "Healthy" else ("warn" if info["severity"] == "MEDIUM" else "bad")
         st.session_state.results = [dict(
             fname="demo_leaf.jpg", img=None, label=label, conf=conf,
-            all_probs=preds_d, ts=ts, info=info, status=status, b64=None, gradcam_b64=None
+            all_probs=preds_d, ts=ts, info=info, status=status, b64=None, gradcam_b64=None,
         )]
-        # Prepend to history (newest first)
-        st.session_state.history.insert(0, dict(label=label, conf=conf, ts=ts, fname="demo_leaf.jpg", status=status, info=info))
+        st.session_state.history.insert(0, dict(
+            label=label, conf=conf, ts=ts, fname="demo_leaf.jpg", status=status, info=info,
+        ))
         st.session_state.scanned += 1
 
     # Upload
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<div class="sec-lbl">📁 Upload Leaf Image</div>', unsafe_allow_html=True)
     st.markdown('<span class="batch-badge">📦 Batch Scan Mode — multiple files supported</span>', unsafe_allow_html=True)
-    uploaded_files = st.file_uploader("drop", type=["jpg", "jpeg", "png"], accept_multiple_files=True, label_visibility="collapsed")
-    st.markdown('<div class="upload-hint">JPG · PNG · JPEG &nbsp;|&nbsp; Drop multiple files for batch scan &nbsp;|&nbsp; No data leaves your device</div>', unsafe_allow_html=True)
+    uploaded_files = st.file_uploader(
+        "drop", type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True, label_visibility="collapsed",
+    )
+    st.markdown(
+        '<div class="upload-hint">JPG · PNG · JPEG &nbsp;|&nbsp; '
+        'Drop multiple files for batch scan &nbsp;|&nbsp; No data leaves your device</div>',
+        unsafe_allow_html=True,
+    )
 
     valid, do_analyze = [], False
     if uploaded_files:
@@ -888,44 +846,53 @@ def main_app():
                 with cols[i]:
                     st.markdown('<div class="img-wrap">', unsafe_allow_html=True)
                     st.image(img, use_container_width=True)
-                    st.markdown(f'<div class="img-foot"><span>{f.name[:22]}</span><span class="img-badge">{w}×{h}</span></div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="img-foot"><span>{f.name[:22]}</span>'
+                        f'<span class="img-badge">{w}×{h}</span></div>',
+                        unsafe_allow_html=True,
+                    )
                     st.markdown('</div>', unsafe_allow_html=True)
             except Exception:
                 cols[i].error(f"Bad file: {f.name}")
         for f in uploaded_files[3:]:
             try:
-                f.seek(0); img = Image.open(f).convert("RGB"); valid.append((f.name, img))
-            except Exception: pass
+                f.seek(0)
+                img = Image.open(f).convert("RGB")
+                valid.append((f.name, img))
+            except Exception:
+                pass
         if len(uploaded_files) > 3:
             st.caption(f"+{len(uploaded_files) - 3} more file(s) queued")
         st.markdown("<br>", unsafe_allow_html=True)
-        do_analyze = st.button(f"🔬  Analyze {len(valid)} Image{'s' if len(valid) > 1 else ''}", use_container_width=True)
+        do_analyze = st.button(
+            f"🔬  Analyze {len(valid)} Image{'s' if len(valid) > 1 else ''}",
+            use_container_width=True,
+        )
 
-    # ── CINEMATIC SCAN ──────────────────────────────────────────────────────
+    # ── CINEMATIC SCAN ──────────────────────────────────────────────
     if do_analyze and valid:
         preview_b64 = img_to_b64(valid[0][1])
         scan_steps = [
-            ("Reading leaf texture...",       "Analyzing surface patterns"),
-            ("Checking disease patterns...",  "Running CNN feature extraction"),
-            ("Calculating confidence...",     "Softmax probability scoring"),
-            ("Building Grad-CAM heatmap...",  "Gradient visualization layer"),
-            ("Generating field report...",    "Compiling diagnosis output"),
+            ("Reading leaf texture...",      "Analyzing surface patterns"),
+            ("Checking disease patterns...", "Running CNN feature extraction"),
+            ("Calculating confidence...",    "Softmax probability scoring"),
+            ("Building Grad-CAM heatmap...", "Gradient visualization layer"),
+            ("Generating field report...",   "Compiling diagnosis output"),
         ]
-        placeholder = st.empty()  # single placeholder re-used across all scan frames
+        placeholder = st.empty()
         for step_i, (step_title, step_sub) in enumerate(scan_steps):
             checks = ""
             for ci, (ct, _) in enumerate(scan_steps):
                 if ci < step_i:
-                    cls, ico = "done", "✓"
-                    row_cls = "done"
+                    cls, ico, row_cls = "done", "✓", "done"
                 elif ci == step_i:
-                    cls, ico = "active", "●"
-                    row_cls = "active"
+                    cls, ico, row_cls = "active", "●", "active"
                 else:
-                    cls, ico = "wait", "○"
-                    row_cls = ""
-                checks += f'<div class="scan-check-row {row_cls}"><span class="scan-check-ico {cls}-ico">{ico}</span>{ct}</div>'
-
+                    cls, ico, row_cls = "wait", "○", ""
+                checks += (
+                    f'<div class="scan-check-row {row_cls}">'
+                    f'<span class="scan-check-ico {cls}-ico">{ico}</span>{ct}</div>'
+                )
             placeholder.markdown(f"""
 <div class="scan-overlay">
   <div class="scan-header">
@@ -943,7 +910,11 @@ def main_app():
   </div>
   <div class="scan-footer">
     <span class="scan-prog-lbl">Processing {step_i + 1} / {len(scan_steps)}</span>
-    <div class="scan-dots"><div class="scan-dot"></div><div class="scan-dot"></div><div class="scan-dot"></div></div>
+    <div class="scan-dots">
+      <div class="scan-dot"></div>
+      <div class="scan-dot"></div>
+      <div class="scan-dot"></div>
+    </div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -954,19 +925,24 @@ def main_app():
         batch = []
         for fname, img in valid:
             label, conf, all_probs = predict(img)
-            ts = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
-            info = DISEASE_INFO[label]
-            b64 = img_to_b64(img)
+            ts     = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
+            info   = DISEASE_INFO[label]
+            b64    = img_to_b64(img)
             gradcam_b64 = generate_gradcam(img, label)
             status = "ok" if label == "Healthy" else ("warn" if info["severity"] == "MEDIUM" else "bad")
-            batch.append(dict(fname=fname, img=img, label=label, conf=conf, all_probs=all_probs,
-                              ts=ts, info=info, status=status, b64=b64, gradcam_b64=gradcam_b64))
-            st.session_state.history.insert(0, dict(label=label, conf=conf, ts=ts, fname=fname, status=status, info=info))
+            batch.append(dict(
+                fname=fname, img=img, label=label, conf=conf,
+                all_probs=all_probs, ts=ts, info=info, status=status,
+                b64=b64, gradcam_b64=gradcam_b64,
+            ))
+            st.session_state.history.insert(0, dict(
+                label=label, conf=conf, ts=ts, fname=fname, status=status, info=info,
+            ))
             st.session_state.scanned += 1
         st.session_state.results = batch
-        st.rerun()   # trigger full re-render to display results sections
+        st.rerun()
 
-    # ── RESULTS ─────────────────────────────────────────────────────────────
+    # ── RESULTS ─────────────────────────────────────────────────────
     if st.session_state.results:
         results = st.session_state.results
 
@@ -974,17 +950,29 @@ def main_app():
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">🧬 Diagnosis</div>', unsafe_allow_html=True)
         for r in results:
-            info = r["info"]
-            pct = r["conf"] * 100
-            status = r["status"]
-            card_cls = {"ok": "", "warn": "amber", "bad": "diseased"}.get(status, "")
-            tag_cls  = {"ok": "r-ok", "warn": "r-warn", "bad": "r-bad"}.get(status, "r-ok")
-            tag_txt  = {"ok": "⬤ Healthy", "warn": "⬤ Monitor", "bad": "⬤ Disease Detected"}.get(status, "")
-            bar_grad = {"ok": "linear-gradient(90deg,#1a9e30,#7ddb8f)", "warn": "linear-gradient(90deg,#78350f,#f5c842)", "bad": "linear-gradient(90deg,#7f1d1d,#ff7070)"}.get(status, "")
-            ring_col = {"ok": "#7ddb8f", "warn": "#f5c842", "bad": "#ff7070"}.get(status, "#7ddb8f")
-            urg = info["urgency"]
-            urg_style = {"HIGH": "background:rgba(255,112,112,.11);color:#ff7070;border:1px solid rgba(255,112,112,.28);", "MEDIUM": "background:rgba(245,200,66,.11);color:#f5c842;border:1px solid rgba(245,200,66,.28);", "NONE": "background:rgba(125,219,143,.09);color:#7ddb8f;border:1px solid rgba(125,219,143,.25);"}.get(urg, "")
-            urg_txt = {"HIGH": "🚨 Urgent Treatment Required", "MEDIUM": "⚠️ Monitor Closely", "NONE": "✅ No Action Needed"}.get(urg, "")
+            info      = r["info"]
+            pct       = r["conf"] * 100
+            status    = r["status"]
+            card_cls  = {"ok": "", "warn": "amber", "bad": "diseased"}.get(status, "")
+            tag_cls   = {"ok": "r-ok", "warn": "r-warn", "bad": "r-bad"}.get(status, "r-ok")
+            tag_txt   = {"ok": "⬤ Healthy", "warn": "⬤ Monitor", "bad": "⬤ Disease Detected"}.get(status, "")
+            bar_grad  = {
+                "ok":   "linear-gradient(90deg,#1a9e30,#7ddb8f)",
+                "warn": "linear-gradient(90deg,#78350f,#f5c842)",
+                "bad":  "linear-gradient(90deg,#7f1d1d,#ff7070)",
+            }.get(status, "")
+            ring_col  = {"ok": "#7ddb8f", "warn": "#f5c842", "bad": "#ff7070"}.get(status, "#7ddb8f")
+            urg       = info["urgency"]
+            urg_style = {
+                "HIGH":   "background:rgba(255,112,112,.11);color:#ff7070;border:1px solid rgba(255,112,112,.28);",
+                "MEDIUM": "background:rgba(245,200,66,.11);color:#f5c842;border:1px solid rgba(245,200,66,.28);",
+                "NONE":   "background:rgba(125,219,143,.09);color:#7ddb8f;border:1px solid rgba(125,219,143,.25);",
+            }.get(urg, "")
+            urg_txt   = {
+                "HIGH":   "🚨 Urgent Treatment Required",
+                "MEDIUM": "⚠️ Monitor Closely",
+                "NONE":   "✅ No Action Needed",
+            }.get(urg, "")
             ring = conf_ring_html(r["conf"], ring_col)
 
             st.markdown(f"""
@@ -997,31 +985,51 @@ def main_app():
     </div>
     {ring}
   </div>
-  <div class="r-ch"><span class="r-cl">Confidence Score</span><span class="r-cv">{pct:.1f}%</span></div>
-  <div class="r-bt"><div class="r-bf" style="width:{pct:.1f}%;background:{bar_grad};"></div></div>
+  <div class="r-ch">
+    <span class="r-cl">Confidence Score</span>
+    <span class="r-cv">{pct:.1f}%</span>
+  </div>
+  <div class="r-bt">
+    <div class="r-bf" style="width:{pct:.1f}%;background:{bar_grad};"></div>
+  </div>
   <div class="r-quick">
-    <div class="r-qs"><div class="r-qs-l">Severity</div><div class="r-qs-v" style="color:{info['sev_color']};">{info['severity']}</div></div>
-    <div class="r-qs"><div class="r-qs-l">Yield Impact</div><div class="r-qs-v">{info['yield_impact']}</div></div>
-    <div class="r-qs"><div class="r-qs-l">Spread Rate</div><div class="r-qs-v">{info['spread_rate']}</div></div>
+    <div class="r-qs">
+      <div class="r-qs-l">Severity</div>
+      <div class="r-qs-v" style="color:{info['sev_color']};">{info['severity']}</div>
+    </div>
+    <div class="r-qs">
+      <div class="r-qs-l">Yield Impact</div>
+      <div class="r-qs-v">{info['yield_impact']}</div>
+    </div>
+    <div class="r-qs">
+      <div class="r-qs-l">Spread Rate</div>
+      <div class="r-qs-v">{info['spread_rate']}</div>
+    </div>
   </div>
   <span class="urgency-badge" style="{urg_style}">{urg_txt}</span>
-  <div class="r-meta"><span>🕐 {r['ts']}</span><span>📄 {r['fname']}</span></div>
+  <div class="r-meta">
+    <span>🕐 {r['ts']}</span>
+    <span>📄 {r['fname']}</span>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
         # 2. Export
         st.markdown("<br>", unsafe_allow_html=True)
         report_bytes = generate_report(results)
-        fname_out = f"cornscan_v6_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.txt"
-        st.download_button("📄  Export Full Diagnosis Report", data=report_bytes, file_name=fname_out, mime="text/plain", use_container_width=True)
+        fname_out    = f"cornscan_v6_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.txt"
+        st.download_button(
+            "📄  Export Full Diagnosis Report",
+            data=report_bytes, file_name=fname_out,
+            mime="text/plain", use_container_width=True,
+        )
 
         # 3. Grad-CAM Panel
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">🔥 Grad-CAM Heatmap Analysis</div>', unsafe_allow_html=True)
         for r in results:
-            info = r["info"]
+            info   = r["info"]
             status = r["status"]
-            # prob bars
             prob_bars = ""
             for cls in CLASSES:
                 p = r["all_probs"][cls]
@@ -1029,21 +1037,24 @@ def main_app():
                     fill_cls = {"ok": "prob-hi", "warn": "prob-warn", "bad": "prob-bad"}.get(status, "prob-hi")
                 else:
                     fill_cls = ""
-                prob_bars += f'<div class="prob-row"><span class="prob-name">{cls}</span><div class="prob-tr"><div class="prob-fill {fill_cls}" style="width:{p*100:.1f}%"></div></div><span class="prob-pct">{p*100:.1f}%</span></div>'
-
-            # Why text
+                prob_bars += (
+                    f'<div class="prob-row">'
+                    f'<span class="prob-name">{cls}</span>'
+                    f'<div class="prob-tr"><div class="prob-fill {fill_cls}" style="width:{p*100:.1f}%"></div></div>'
+                    f'<span class="prob-pct">{p*100:.1f}%</span></div>'
+                )
             why_map = {
-                "Blight": "The model detected elongated chlorotic lesion patterns along the leaf blade, consistent with E. turcicum infection corridors.",
-                "Common Rust": "High-density pustule-like texture clusters identified across both leaf surfaces, matching P. sorghi sporulation signatures.",
+                "Blight":        "The model detected elongated chlorotic lesion patterns along the leaf blade, consistent with E. turcicum infection corridors.",
+                "Common Rust":   "High-density pustule-like texture clusters identified across both leaf surfaces, matching P. sorghi sporulation signatures.",
                 "Gray Leaf Spot": "Rectangular inter-veinal lesion geometry detected — hallmark of C. zeae-maydis boundary-constrained growth.",
-                "Healthy": "No disease markers detected. Leaf texture, color uniformity, and venation patterns all fall within healthy reference ranges.",
+                "Healthy":       "No disease markers detected. Leaf texture, color uniformity, and venation patterns all fall within healthy reference ranges.",
             }
             why_text = why_map.get(r["label"], "")
-
             img_html = (
                 f'<img src="data:image/jpeg;base64,{r["gradcam_b64"]}" alt="gradcam"/>'
                 if r.get("gradcam_b64") else
-                f'<div style="width:100%;height:240px;display:flex;align-items:center;justify-content:center;font-size:4rem;background:var(--bg3);">{info["icon"]}</div>'
+                f'<div style="width:100%;height:240px;display:flex;align-items:center;'
+                f'justify-content:center;font-size:4rem;background:var(--bg3);">{info["icon"]}</div>'
             )
             st.markdown(f"""
 <div class="gradcam-panel">
@@ -1074,20 +1085,25 @@ def main_app():
         seen = set()
         for r in results:
             lbl = r["label"]
-            if lbl in seen: continue
+            if lbl in seen:
+                continue
             seen.add(lbl)
-            info = r["info"]
-            sc = info["sev_color"]
+            info  = r["info"]
+            sc    = info["sev_color"]
             chips = "".join(f'<span class="sym-chip">{s}</span>' for s in info["symptoms"])
-            steps = "".join(f'<div class="step-row"><span class="step-num">{j}</span><span>{step}</span></div>' for j, step in enumerate(info["treatment_steps"], 1))
-
+            steps = "".join(
+                f'<div class="step-row"><span class="step-num">{j}</span><span>{step}</span></div>'
+                for j, step in enumerate(info["treatment_steps"], 1)
+            )
             with st.expander(f"{info['icon']}  {info['short']} — Full Analysis", expanded=True):
                 st.markdown(f"""
 <div class="explain-grid">
   <div class="explain-box">
     <div class="explain-box-h">📋 Model Analysis</div>
     <div class="explain-box-b">{info['desc']}</div>
-    <span class="sev-badge-lg" style="background:{sc}15;color:{sc};border:1px solid {sc}40;">SEVERITY: {info['severity']}</span>
+    <span class="sev-badge-lg" style="background:{sc}15;color:{sc};border:1px solid {sc}40;">
+      SEVERITY: {info['severity']}
+    </span>
   </div>
   <div class="explain-box">
     <div class="explain-box-h">🔍 Matched Symptoms</div>
@@ -1113,17 +1129,21 @@ def main_app():
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">📊 AI Risk Dashboard</div>', unsafe_allow_html=True)
 
-        r0 = results[0]
-        risk_pct = r0["info"]["risk_score"]
+        r0         = results[0]
+        risk_pct   = r0["info"]["risk_score"]
         risk_color = r0["info"]["sev_color"]
         risk_label = r0["info"]["severity"] if r0["info"]["severity"] != "NONE" else "LOW"
 
         total_h = max(len(st.session_state.history), 1)
-        hc = sum(1 for h in st.session_state.history if h["status"] == "ok")
-        dc = total_h - hc
-        h_pct = round(hc / total_h * 100)
-        R_d = 32; C_d = 2 * 3.14159 * R_d
-        h_arc = hc / total_h * C_d; d_arc = dc / total_h * C_d
+        hc      = sum(1 for h in st.session_state.history if h["status"] == "ok")
+        dc      = total_h - hc
+        h_pct   = round(hc / total_h * 100)
+        R_d     = 32
+        C_d     = 2 * 3.14159 * R_d
+        h_arc   = hc / total_h * C_d
+        d_arc   = dc / total_h * C_d
+        # Compute numeric dashoffset for the diseased arc (no HTML comments in f-string)
+        d_offset = -h_arc
 
         st.markdown(f"""
 <div class="charts-row">
@@ -1146,14 +1166,18 @@ def main_app():
         <circle cx="42" cy="42" r="{R_d}" fill="none" stroke="#7ddb8f" stroke-width="9"
           stroke-dasharray="{h_arc:.2f} {C_d:.2f}" stroke-linecap="round"/>
         <circle cx="42" cy="42" r="{R_d}" fill="none" stroke="#ff7070" stroke-width="9"
-          stroke-dasharray="{d_arc:.2f} {C_d:.2f}" stroke-dashoffset="-{h_arc:.2f}"  <!-- offset by healthy arc so diseased arc follows on -->
+          stroke-dasharray="{d_arc:.2f} {C_d:.2f}" stroke-dashoffset="{d_offset:.2f}"
           stroke-linecap="round" style="opacity:{1 if dc > 0 else 0};"/>
       </svg>
       <div class="donut-lgd">
         <div class="donut-big">{h_pct}%</div>
         <div class="donut-sub">Field Healthy</div>
-        <div class="donut-item" style="margin-top:.4rem;"><div class="donut-dot" style="background:#7ddb8f;"></div>Healthy ({hc})</div>
-        <div class="donut-item"><div class="donut-dot" style="background:#ff7070;"></div>Diseased ({dc})</div>
+        <div class="donut-item" style="margin-top:.4rem;">
+          <div class="donut-dot" style="background:#7ddb8f;"></div>Healthy ({hc})
+        </div>
+        <div class="donut-item">
+          <div class="donut-dot" style="background:#ff7070;"></div>Diseased ({dc})
+        </div>
       </div>
     </div>
   </div>
@@ -1164,16 +1188,23 @@ def main_app():
             for r in results:
                 st.markdown(f"**{r['fname']}**", unsafe_allow_html=False)
                 for cls in CLASSES:
-                    p = r["all_probs"][cls]
+                    p  = r["all_probs"][cls]
                     hi = "prob-hi" if cls == r["label"] else ""
-                    st.markdown(f'<div class="prob-row"><span class="prob-name">{cls}</span><div class="prob-tr"><div class="prob-fill {hi}" style="width:{p*100:.1f}%"></div></div><span class="prob-pct">{p*100:.1f}%</span></div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="prob-row">'
+                        f'<span class="prob-name">{cls}</span>'
+                        f'<div class="prob-tr"><div class="prob-fill {hi}" style="width:{p*100:.1f}%"></div></div>'
+                        f'<span class="prob-pct">{p*100:.1f}%</span></div>',
+                        unsafe_allow_html=True,
+                    )
 
         # 6. Farmer Intelligence
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">👨‍🌾 Farmer Intelligence</div>', unsafe_allow_html=True)
         seen2 = set()
         for r in results:
-            if r["label"] in seen2: continue
+            if r["label"] in seen2:
+                continue
             seen2.add(r["label"])
             info = r["info"]
             st.markdown(f"""
@@ -1187,18 +1218,31 @@ def main_app():
         # 7. Weather Risk
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">🌦️ Weather-Based Disease Risk</div>', unsafe_allow_html=True)
-        st.markdown('<div class="weather-chips">' + "".join(
-            f'<div class="wchip"><div class="wc-ico">{w["icon"]}</div><div class="wc-lbl">{w["label"]}</div><div class="wc-risk" style="color:{w["risk_color"]};">{w["risk"]}</div></div>'
-            for w in WEATHER_CONDITIONS) + '</div>', unsafe_allow_html=True)
-
-        weather_sel = st.selectbox("Field conditions:", [w["label"] for w in WEATHER_CONDITIONS], label_visibility="visible")
-        w_info = next(w for w in WEATHER_CONDITIONS if w["label"] == weather_sel)
-        rc = w_info["risk_color"]
+        st.markdown(
+            '<div class="weather-chips">' +
+            "".join(
+                f'<div class="wchip">'
+                f'<div class="wc-ico">{w["icon"]}</div>'
+                f'<div class="wc-lbl">{w["label"]}</div>'
+                f'<div class="wc-risk" style="color:{w["risk_color"]};">{w["risk"]}</div>'
+                f'</div>'
+                for w in WEATHER_CONDITIONS
+            ) +
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        weather_sel = st.selectbox(
+            "Field conditions:",
+            [w["label"] for w in WEATHER_CONDITIONS],
+            label_visibility="visible",
+        )
+        w_info  = next(w for w in WEATHER_CONDITIONS if w["label"] == weather_sel)
+        rc      = w_info["risk_color"]
         trigger = results[0]["info"]["weather_trigger"] if results else ""
         st.markdown(f"""
 <div class="risk-result" style="background:var(--bg3);border-left:2px solid {rc};border-radius:10px;">
-  {w_info['icon']} &nbsp;<strong style="color:{rc};">{w_info['risk']} RISK</strong> &nbsp;·&nbsp;
-  Index: <strong style="color:{rc};">{w_info['risk_pct']}%</strong><br>
+  {w_info['icon']} &nbsp;<strong style="color:{rc};">{w_info['risk']} RISK</strong>
+  &nbsp;·&nbsp; Index: <strong style="color:{rc};">{w_info['risk_pct']}%</strong><br>
   <span style="font-size:.75rem;color:var(--c3);">{w_info['desc']}</span><br>
   <span style="font-size:.73rem;color:var(--c4);margin-top:.4rem;display:block;">{trigger}</span>
 </div>
@@ -1225,19 +1269,23 @@ def main_app():
         cl1, _ = st.columns([1, 4])
         with cl1:
             if st.button("↺ Clear History"):
-                st.session_state.history = []; st.session_state.scanned = 0; st.session_state.results = []; st.rerun()
+                st.session_state.history = []
+                st.session_state.scanned = 0
+                st.session_state.results = []
+                st.rerun()
 
     st.markdown("""
 <div class="app-footer">
   🌽 &nbsp;<strong>CornScan AI v6.0 Ultimate</strong><br>
   TensorFlow / Keras · CNN Plant Disease Detection · Grad-CAM Heatmaps<br>
-  <span style="opacity:.45;">No data leaves your device · For research & field-scouting use</span>
+  <span style="opacity:.45;">No data leaves your device · For research &amp; field-scouting use</span>
 </div>
 """, unsafe_allow_html=True)
 
 
-# Router
-# === PAGE ROUTER: dispatches to loading/landing/main based on session_state.page ===
+# ═══════════════════════════════════════════════
+# PAGE ROUTER
+# ═══════════════════════════════════════════════
 if st.session_state.page == "loading":
     loading_page()
 elif st.session_state.page == "landing":
