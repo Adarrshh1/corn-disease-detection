@@ -686,30 +686,57 @@ def loading_page():
 def landing_page():
     inject_css()
     st.markdown("""
-<div class="lp-bg"></div><div class="lp-grid"></div>
-<div class="lp-wrap">
-  <div class="lp-orb">🌿</div>
-  <div class="lp-pill"><span class="lp-pill-dot"></span>Deep Learning · Plant Pathology · v6.0 Ultimate</div>
-  <div class="lp-title">CornScan<br><span class="lp-title-grad">AI</span></div>
-  <div class="lp-sub">Upload a corn leaf photo. Get an instant, science-backed disease diagnosis with Grad-CAM heatmaps and AI-powered field intelligence.</div>
-  <div class="lp-stats">
-    <div><div class="lp-stat-n">97%</div><div class="lp-stat-l">Accuracy</div></div>
-    <div class="lp-sep"></div>
-    <div><div class="lp-stat-n">4</div><div class="lp-stat-l">Classes</div></div>
-    <div class="lp-sep"></div>
-    <div><div class="lp-stat-n">&lt;2s</div><div class="lp-stat-l">Inference</div></div>
-    <div class="lp-sep"></div>
-    <div><div class="lp-stat-n">CNN</div><div class="lp-stat-l">Architecture</div></div>
+<div class="feat-grid">
+
+    <div class="feat-card">
+      <span class="feat-badge">Vision AI</span>
+      <div class="feat-ico-wrap">🔥</div>
+      <div class="feat-title">Grad-CAM Heatmap</div>
+      <div class="feat-desc">See exactly where the AI detected disease on your leaf</div>
+      <div class="feat-reveal">⬤ Gradient activation mapping</div>
+    </div>
+
+    <div class="feat-card">
+      <span class="feat-badge">Smart</span>
+      <div class="feat-ico-wrap">🧠</div>
+      <div class="feat-title">AI Explanation</div>
+      <div class="feat-desc">Understand why the model made its decision</div>
+      <div class="feat-reveal">⬤ Pathogen-level reasoning</div>
+    </div>
+
+    <div class="feat-card">
+      <span class="feat-badge">Live</span>
+      <div class="feat-ico-wrap">⚡</div>
+      <div class="feat-title">Cinematic Scan</div>
+      <div class="feat-desc">Live scan animation with real-time progress steps</div>
+      <div class="feat-reveal">⬤ Step-by-step CNN pipeline</div>
+    </div>
+
+    <div class="feat-card">
+      <span class="feat-badge">Analytics</span>
+      <div class="feat-ico-wrap">📊</div>
+      <div class="feat-title">Risk Dashboard</div>
+      <div class="feat-desc">Gauge meter, donut chart, confidence ring</div>
+      <div class="feat-reveal">⬤ Field health at a glance</div>
+    </div>
+
+    <div class="feat-card">
+      <span class="feat-badge">Forecast</span>
+      <div class="feat-ico-wrap">🌦️</div>
+      <div class="feat-title">Weather Risk</div>
+      <div class="feat-desc">Disease risk based on current field conditions</div>
+      <div class="feat-reveal">⬤ 4-condition risk index</div>
+    </div>
+
+    <div class="feat-card">
+      <span class="feat-badge">Premium</span>
+      <div class="feat-ico-wrap">📄</div>
+      <div class="feat-title">PDF Export</div>
+      <div class="feat-desc">Download complete field diagnosis report</div>
+      <div class="feat-reveal">⬤ Full report with treatment steps</div>
+    </div>
+
   </div>
-  <div class="lp-feats">
-    <div class="lp-feat"><div class="lp-feat-ico">🔥</div><div class="lp-feat-t">Grad-CAM Heatmap</div><div class="lp-feat-d">See exactly where the AI detected disease on your leaf</div></div>
-    <div class="lp-feat"><div class="lp-feat-ico">🧠</div><div class="lp-feat-t">AI Explanation</div><div class="lp-feat-d">Understand why the model made its decision</div></div>
-    <div class="lp-feat"><div class="lp-feat-ico">⚡</div><div class="lp-feat-t">Cinematic Scan</div><div class="lp-feat-d">Live scan animation with real-time progress steps</div></div>
-    <div class="lp-feat"><div class="lp-feat-ico">📊</div><div class="lp-feat-t">Risk Dashboard</div><div class="lp-feat-d">Gauge meter, donut chart, confidence ring</div></div>
-    <div class="lp-feat"><div class="lp-feat-ico">🌦️</div><div class="lp-feat-t">Weather Risk</div><div class="lp-feat-d">Disease risk based on current field conditions</div></div>
-    <div class="lp-feat"><div class="lp-feat-ico">📄</div><div class="lp-feat-t">PDF Export</div><div class="lp-feat-d">Download complete field diagnosis report</div></div>
-  </div>
-</div>
 """, unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1.4, 2, 1.4])
     with c2:
