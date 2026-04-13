@@ -1,18 +1,44 @@
 """
+CornScan AI  ·  v6.0 Ultimate  (Pink Edition)
+═══════════════════════════════════════════
+
+PAGE FLOW:
+  loading_page()  →  2.2s splash animation  →  landing_page()
+  landing_page()  →  "Launch" CTA button    →  main_app()
+  main_app()      →  full diagnostic interface
+
+MODEL:
+  If corn_model.h5 exists, TensorFlow/Keras runs real inference.
+  Otherwise a Dirichlet random draw simulates predictions (demo mode).
+  Grad-CAM heatmaps are PIL-simulated — no real gradients required.
+
+THEME:
+  Loading + Landing  →  dark green-black (#050b03) palette
+  Main App           →  white + soft rose-pink palette
+
 ╔══════════════════════════════════════════════════════════════════╗
-║  CornScan AI  ·  app.py  ·  v6.0 Ultimate  (Pink Edition)       ║
-║  Landing/Loading : deep black  (#050b03 dark green-black)        ║
-║  Main App       : white + soft rose-pink theme                   ║
-║  Features: Cinematic scan · Grad-CAM · Conf ring · Risk meter    ║
-║  Field health donut · AI explanation · Weather risk · History    ║
+║  CornScan AI  ·  app.py  ·  v6.0 Ultimate                       ║
+║  Premium features: Cinematic scan · Grad-CAM heatmap · Conf ring║
+║  Risk meter · Field health donut · AI explanation panel         ║
+║  Farmer intelligence · Weather risk · History dashboard · PDF   ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
-import os, io, base64, datetime, time
-import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
-import streamlit as st
+# ── Standard library ────────────────────────────────────────────────
+import os            # check if corn_model.h5 exists on disk
+import io            # in-memory buffers for base64 image encoding
+import base64        # encode PIL images → base64 strings for HTML <img>
+import datetime      # timestamp every scan result
+import time          # sleep() to pace loading and scan animations
+# ── Third-party ──────────────────────────────────────────────────────
+import numpy as np                              # array math, random Dirichlet
+from PIL import Image, ImageDraw, ImageFilter  # image processing + heatmap gen
+import streamlit as st                          # entire UI framework
 
+# ═══════════════════════════════════════════════════════════════════
+# PAGE CONFIG  —  must be the FIRST Streamlit call in the script.
+# Sets browser tab title, favicon, layout width, and sidebar state.
+# ═══════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Corn",
     page_icon="🌽",
@@ -20,6 +46,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ═══════════════════════════════════════════════════════════════════
+# SESSION STATE
+# Streamlit re-runs the whole script on every interaction.
+# st.session_state persists values across re-runs within one session.
+# Keys:
+#   page         – "loading" | "landing" | "main"
+#   history      – list of past scan dicts (newest first)
+#   results      – scan results for the CURRENT batch
+#   scanned      – total leaves scanned this session (stats strip)
+#   weather_risk – selected weather condition (reserved)
+#   loading_done – prevents loading page from re-triggering
+# ═══════════════════════════════════════════════════════════════════
 for key, default in [
     ("page",    "loading"),
     ("history", []),
@@ -31,11 +69,36 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
+# ═══════════════════════════════════════════════════════════════════
+# DISEASE CLASSES
+# Order MUST match the trained Keras model output layer exactly.
+# Index: 0=Blight  1=Common Rust  2=Gray Leaf Spot  3=Healthy
+# ═══════════════════════════════════════════════════════════════════
 CLASSES = ["Blight", "Common Rust", "Gray Leaf Spot", "Healthy"]
 
+# ═══════════════════════════════════════════════════════════════════
+# DISEASE INFO DICTIONARY
+# One entry per class. Keys used across UI sections:
+#   icon           – emoji for history rows and cards
+#   severity       – "HIGH"|"MEDIUM"|"NONE"  (badge + card border color)
+#   sev_color      – hex color matching severity (red/amber/green)
+#   short          – human-readable disease name (big heading on result card)
+#   pathogen       – scientific name (italic subtitle)
+#   desc           – 2-sentence description for AI explanation panel
+#   action         – one-line recommendation (also in export report)
+#   symptoms       – list of 3 strings rendered as pill chips
+#   urgency        – "HIGH"|"MEDIUM"|"NONE"  (urgency badge)
+#   farmer_advice  – paragraph for Farmer Intelligence card
+#   weather_trigger– weather note shown in farmer card and weather widget
+#   treatment_steps– 4 numbered steps for AI explanation panel
+#   risk_score     – 0-100 integer for gauge-meter needle position
+#   yield_impact   – displayed in quick-stats row on result card
+#   spread_rate    – displayed in quick-stats row on result card
+#   heat_color     – rgba reserved for future real Grad-CAM tinting
+# ═══════════════════════════════════════════════════════════════════
 DISEASE_INFO = {
     "Blight": {
-        "icon": "🍂", "severity": "HIGH", "sev_color": "#e53e3e",
+        "icon": "🍂", "severity": "HIGH", "sev_color": "#ff6b6b",
         "short": "Northern Corn Leaf Blight",
         "pathogen": "Exserohilum turcicum",
         "desc": "A serious fungal disease thriving in moderate temperatures (18–27°C) with extended leaf-wetness. Can reduce yield by 30–50% in epidemic years.",
@@ -51,7 +114,7 @@ DISEASE_INFO = {
         "heat_color": "rgba(255,80,80,0.35)",
     },
     "Common Rust": {
-        "icon": "🟠", "severity": "MEDIUM", "sev_color": "#d69e2e",
+        "icon": "🟠", "severity": "MEDIUM", "sev_color": "#ffd93d",
         "short": "Common Corn Rust",
         "pathogen": "Puccinia sorghi",
         "desc": "Spreads via airborne spores in cool, humid conditions (16–23°C). Can reduce grain fill by up to 20% with severe pre-silking infection.",
@@ -67,7 +130,7 @@ DISEASE_INFO = {
         "heat_color": "rgba(255,180,30,0.32)",
     },
     "Gray Leaf Spot": {
-        "icon": "🩶", "severity": "HIGH", "sev_color": "#e53e3e",
+        "icon": "🩶", "severity": "HIGH", "sev_color": "#ff6b6b",
         "short": "Gray Leaf Spot",
         "pathogen": "Cercospora zeae-maydis",
         "desc": "Among the most economically damaging corn diseases globally. Overwinters in residue; epidemic in warm, humid, no-till continuous-corn systems.",
@@ -83,7 +146,7 @@ DISEASE_INFO = {
         "heat_color": "rgba(150,150,255,0.30)",
     },
     "Healthy": {
-        "icon": "✅", "severity": "NONE", "sev_color": "#38a169",
+        "icon": "✅", "severity": "NONE", "sev_color": "#6bcb77",
         "short": "No Disease Detected",
         "pathogen": "Zea mays — clean",
         "desc": "No signs of fungal, bacterial, or viral disease detected. The leaf appears vigorous with uniform colour and clean surface texture.",
@@ -100,15 +163,31 @@ DISEASE_INFO = {
     },
 }
 
+# ═══════════════════════════════════════════════════════════════════
+# WEATHER CONDITIONS
+# 4 selectable field-condition scenarios for the Weather Risk widget.
+#   risk_pct   – 0-100 risk index displayed after selection
+#   risk_color – hex accent color shown next to the risk label
+#   desc       – explanatory sentence shown after the user selects a condition
+# ═══════════════════════════════════════════════════════════════════
 WEATHER_CONDITIONS = [
-    {"label": "Hot & Dry",    "icon": "☀️",  "risk": "LOW",    "risk_pct": 18, "risk_color": "#38a169", "desc": "Low humidity suppresses fungal spore germination. Monitor for stress-related issues."},
-    {"label": "Warm & Humid", "icon": "🌤️", "risk": "MEDIUM", "risk_pct": 55, "risk_color": "#d69e2e", "desc": "Moderate conditions favour rust development. Increase scouting frequency."},
-    {"label": "Cool & Wet",   "icon": "🌧️", "risk": "HIGH",   "risk_pct": 82, "risk_color": "#e53e3e", "desc": "Ideal conditions for blight and gray leaf spot. Consider preventive fungicide."},
-    {"label": "Foggy & Mild", "icon": "🌫️", "risk": "HIGH",   "risk_pct": 76, "risk_color": "#e53e3e", "desc": "Extended leaf wetness from fog greatly accelerates all fungal diseases."},
+    {"label": "Hot & Dry",    "icon": "☀️",  "risk": "LOW",    "risk_pct": 18, "risk_color": "#6bcb77", "desc": "Low humidity suppresses fungal spore germination. Monitor for stress-related issues."},
+    {"label": "Warm & Humid", "icon": "🌤️", "risk": "MEDIUM", "risk_pct": 55, "risk_color": "#ffd93d", "desc": "Moderate conditions favour rust development. Increase scouting frequency."},
+    {"label": "Cool & Wet",   "icon": "🌧️", "risk": "HIGH",   "risk_pct": 82, "risk_color": "#ff6b6b", "desc": "Ideal conditions for blight and gray leaf spot. Consider preventive fungicide."},
+    {"label": "Foggy & Mild", "icon": "🌫️", "risk": "HIGH",   "risk_pct": 76, "risk_color": "#ff6b6b", "desc": "Extended leaf wetness from fog greatly accelerates all fungal diseases."},
 ]
 
+# ═══════════════════════════════════════════════════════════════════
+# MODEL LOADER
+# @st.cache_resource loads the model once and reuses it across all
+# Streamlit re-runs (avoids repeated disk I/O on every interaction).
+# Returns the Keras model, or None if TF is not installed / file missing.
+# ═══════════════════════════════════════════════════════════════════
 @st.cache_resource(show_spinner=False)
 def load_model():
+    """
+    Load corn_model.h5 if available. Falls back to None → random predictions.
+    """
     try:
         import tensorflow as tf
         if os.path.exists("corn_model.h5"):
@@ -117,18 +196,43 @@ def load_model():
         pass
     return None
 
+# ═══════════════════════════════════════════════════════════════════
+# PREDICTION
+# 1. Resize to 224×224 (standard CNN input size)
+# 2. Normalise pixels to [0,1] float32
+# 3. Add batch dimension → shape (1, 224, 224, 3)
+# 4. Run model.predict() OR random Dirichlet fallback
+# Returns: (predicted_label, confidence_float, all_probs_dict)
+# ═══════════════════════════════════════════════════════════════════
 def predict(img: Image.Image):
     model = load_model()
     arr = np.array(img.convert("RGB").resize((224, 224)), dtype=np.float32) / 255.0
     arr = np.expand_dims(arr, 0)
+    # Run real inference OR simulate with Dirichlet (alpha=1.8 → soft dominant class)
     preds = model.predict(arr, verbose=0)[0] if model else np.random.dirichlet(np.ones(4) * 1.8)
     idx = int(np.argmax(preds))
     return CLASSES[idx], float(preds[idx]), dict(zip(CLASSES, preds.tolist()))
 
+# ═══════════════════════════════════════════════════════════════════
+# SIMULATED GRAD-CAM HEATMAP
+# Real Grad-CAM requires intermediate CNN layer gradients. Since the
+# model may not be loaded, we simulate a visually plausible heatmap:
+#   1. Create a blank float32 activation map (300×400)
+#   2. Diseased: place 2-4 random Gaussian blobs at random positions
+#      Healthy:  place a single soft central glow (low activation)
+#   3. Smooth the map with GaussianBlur (softer blob edges)
+#   4. Colorise: green→yellow→red based on activation value
+#   5. Alpha-blend colorised heatmap over the original image
+# Returns: base64-encoded JPEG string for HTML <img> src attribute
+# ═══════════════════════════════════════════════════════════════════
 def generate_gradcam(img: Image.Image, label: str) -> str:
+    """Generate a simulated Grad-CAM heatmap overlay on the image."""
     img_rgb = img.convert("RGB").resize((400, 300))
     arr = np.array(img_rgb, dtype=np.float32)
+
+    info = DISEASE_INFO[label]
     heat_arr = np.zeros((300, 400), dtype=np.float32)
+
     if label == "Healthy":
         cx, cy = np.random.randint(160, 240), np.random.randint(110, 190)
         for y in range(300):
@@ -146,28 +250,48 @@ def generate_gradcam(img: Image.Image, label: str) -> str:
                 for x in range(max(0, cx-radius), min(400, cx+radius)):
                     d = np.sqrt((x - cx)**2 + (y - cy)**2)
                     heat_arr[y, x] += max(0, 1 - d / radius) * intensity
-        heat_arr = np.clip(heat_arr, 0, 1)
+        heat_arr = np.clip(heat_arr, 0, 1)   # cap at 1.0 after summing multiple blobs
+
+    # Apply heat overlay using PIL
     heat_img = Image.fromarray((heat_arr * 255).astype(np.uint8), mode='L')
     heat_img = heat_img.filter(ImageFilter.GaussianBlur(radius=8))
     heat_smooth = np.array(heat_img, dtype=np.float32) / 255.0
+
+    # Colorize: green->yellow->red
     heat_color = np.zeros((300, 400, 3), dtype=np.float32)
     heat_color[:, :, 0] = np.minimum(heat_smooth * 2, 1.0) * 255
     heat_color[:, :, 1] = np.maximum(0, 1 - heat_smooth) * 200
     heat_color[:, :, 2] = 30
+
+    # Blend
     alpha = heat_smooth[:, :, np.newaxis] * 0.55
     blended = arr * (1 - alpha) + heat_color * alpha
     blended = np.clip(blended, 0, 255).astype(np.uint8)
     result = Image.fromarray(blended)
+
     buf = io.BytesIO()
     result.save(buf, format="JPEG", quality=88)
     return base64.b64encode(buf.getvalue()).decode()
 
+# ═══════════════════════════════════════════════════════════════════
+# IMAGE → BASE64
+# Converts a PIL Image to a base64 JPEG string for embedding in HTML.
+# Used for: scan animation preview, Grad-CAM panel src attribute.
+# ═══════════════════════════════════════════════════════════════════
 def img_to_b64(img: Image.Image) -> str:
+    """Convert PIL Image to base64-encoded JPEG string."""
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="JPEG", quality=88)
     return base64.b64encode(buf.getvalue()).decode()
 
+# ═══════════════════════════════════════════════════════════════════
+# REPORT GENERATOR
+# Builds a plain-text diagnosis report for st.download_button().
+# Includes: header, per-image sections with ASCII bar charts,
+# treatment steps, symptoms, farmer advice, and weather trigger.
+# ═══════════════════════════════════════════════════════════════════
 def generate_report(results: list) -> bytes:
+    """Build formatted plain-text report. Returns UTF-8 encoded bytes."""
     lines = []
     ts = datetime.datetime.now().strftime("%d %B %Y, %H:%M")
     lines += [
@@ -212,21 +336,27 @@ def generate_report(results: list) -> bytes:
 
 
 # ═══════════════════════════════════════════════
-# DARK THEME CSS  (Loading + Landing pages)
+# GLOBAL CSS — v6 Ultimate
 # ═══════════════════════════════════════════════
-DARK_CSS = r"""
+def inject_css():
+    st.markdown(r"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --bg0:#050b03;--bg1:#080f05;--bg2:#0d1509;--bg3:#12190d;--bg4:#182011;--bg5:#1e2916;--bg6:#243219;
+  --bg0:#050b03;--bg1:#080f05;--bg2:#0d1509;--bg3:#12190d;--bg4:#182011;
+  --bg5:#1e2916;--bg6:#243219;
   --bd:rgba(255,255,255,.06);--bd2:rgba(255,255,255,.11);--bd3:rgba(255,255,255,.18);
   --cream:#f2ede2;--c2:#afa99e;--c3:#6e6a60;--c4:#3e3b34;
   --g:#7ddb8f;--gm:#4ec862;--gd:#1a9e30;--gdark:#0f6b1e;
-  --glow:rgba(125,219,143,.12);
-  --red:#ff7070;--amber:#f5c842;
+  --glow:rgba(125,219,143,.12);--glow2:rgba(125,219,143,.06);
+  --red:#ff7070;--redbg:rgba(255,112,112,.09);
+  --amber:#f5c842;--amberbg:rgba(245,200,66,.09);
+  --blue:#64b5f6;
   --r:10px;--rl:18px;--rxl:24px;
-  --sh:0 2px 16px rgba(0,0,0,.55);--shm:0 8px 36px rgba(0,0,0,.65);--shl:0 16px 64px rgba(0,0,0,.75);
+  --sh:0 2px 16px rgba(0,0,0,.55);
+  --shm:0 8px 36px rgba(0,0,0,.65);
+  --shl:0 16px 64px rgba(0,0,0,.75);
   --font:'Outfit',sans-serif;--mono:'JetBrains Mono',monospace;
 }
 
@@ -252,6 +382,29 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:var(--bg0)
 }
 .stButton>button:active{transform:translateY(0) scale(.98)!important;}
 
+[data-testid="stFileUploader"] section{
+  background:var(--bg2)!important;border:2px dashed rgba(125,219,143,.18)!important;
+  border-radius:var(--rxl)!important;padding:2.4rem!important;transition:all .25s!important;
+}
+[data-testid="stFileUploader"] section:hover{border-color:rgba(125,219,143,.42)!important;background:rgba(78,200,98,.03)!important;}
+[data-testid="stFileUploader"] section svg{color:var(--g)!important;}
+[data-testid="stFileUploader"] section p{color:var(--c3)!important;}
+
+details{background:var(--bg2)!important;border:1px solid var(--bd)!important;border-radius:var(--rl)!important;margin-bottom:.45rem!important;transition:border-color .2s!important;}
+details:hover{border-color:var(--bd2)!important;}
+details summary{color:var(--c2)!important;font-weight:600!important;font-size:.84rem!important;padding:.8rem 1.1rem!important;cursor:pointer!important;}
+details[open]{border-color:rgba(125,219,143,.2)!important;}
+.stProgress>div>div{background:linear-gradient(90deg,var(--gdark),var(--g))!important;border-radius:999px!important;}
+.stProgress>div{background:var(--bg3)!important;border-radius:999px!important;height:5px!important;}
+.stMarkdown p,.stMarkdown li{color:var(--c2)!important;font-size:.87rem!important;}
+[data-testid="stSelectbox"]>div{background:var(--bg2)!important;border-color:var(--bd2)!important;color:var(--cream)!important;border-radius:var(--r)!important;}
+[data-testid="stDownloadButton"]>button{
+  font-family:var(--font)!important;font-weight:600!important;font-size:.82rem!important;
+  background:var(--bg3)!important;border:1px solid var(--bd2)!important;
+  color:var(--c2)!important;border-radius:var(--r)!important;padding:.5rem 1.2rem!important;transition:all .2s!important;
+}
+[data-testid="stDownloadButton"]>button:hover{border-color:rgba(125,219,143,.35)!important;color:var(--g)!important;background:rgba(78,200,98,.05)!important;}
+
 @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes barGrow{from{width:0}}
@@ -259,8 +412,16 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:var(--bg0)
 @keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 @keyframes gradShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
 @keyframes dotPulse{0%,80%,100%{opacity:.2;transform:scale(.7)}40%{opacity:1;transform:scale(1.1)}}
+@keyframes scanLine{0%{top:-3px}100%{top:104%}}
+@keyframes heatPulse{0%,100%{opacity:.3}50%{opacity:.65}}
+@keyframes slideIn{from{transform:translateX(-12px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes countUp{from{transform:scale(.8);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes shimmerSlide{0%{left:-100%}100%{left:200%}}
+@keyframes ringDraw{from{stroke-dashoffset:232}to{stroke-dashoffset:var(--dash)}}
+@keyframes borderBlink{0%,100%{border-color:rgba(125,219,143,.18)}50%{border-color:rgba(125,219,143,.45)}}
+@keyframes screenDim{from{opacity:0}to{opacity:1}}
 
-/* ── LOADING ── */
+/* ══════ LOADING ══════ */
 .ls-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:84vh;gap:1.2rem;animation:fadeIn .35s ease both;}
 .ls-orb{width:84px;height:84px;border-radius:24px;background:radial-gradient(circle at 34% 30%,rgba(125,219,143,.65),rgba(26,158,48,.2) 60%,transparent 80%);border:1px solid rgba(125,219,143,.28);display:flex;align-items:center;justify-content:center;font-size:2.6rem;box-shadow:0 0 56px rgba(125,219,143,.16);animation:floatY 2s ease-in-out infinite,pulse 2.6s infinite;}
 .ls-title{font-family:var(--font);font-size:1.35rem;font-weight:800;color:var(--cream);letter-spacing:-.04em;}
@@ -274,7 +435,7 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:var(--bg0)
 .ls-dot:nth-child(3){animation:dotPulse 1.1s .34s infinite;}
 .ls-powered{font-family:var(--mono);font-size:.6rem;color:var(--c4);letter-spacing:.06em;}
 
-/* ── LANDING ── */
+/* ══════ LANDING ══════ */
 .lp-bg{position:fixed;inset:0;z-index:0;background:radial-gradient(ellipse 65% 50% at 15% -5%,rgba(78,200,98,.09) 0%,transparent 55%),radial-gradient(ellipse 55% 40% at 88% 105%,rgba(125,219,143,.06) 0%,transparent 55%),var(--bg0);pointer-events:none;}
 .lp-grid{position:fixed;inset:0;z-index:0;background-image:linear-gradient(rgba(255,255,255,.014) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.014) 1px,transparent 1px);background-size:48px 48px;pointer-events:none;mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,black,transparent);}
 .lp-wrap{position:relative;z-index:1;min-height:88vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3.5rem 1.5rem 2rem;text-align:center;animation:fadeUp .7s ease both;}
@@ -294,327 +455,208 @@ html,body,[class*="css"]{font-family:var(--font)!important;background:var(--bg0)
 .lp-feat-ico{font-size:1.4rem;margin-bottom:.35rem;}
 .lp-feat-t{font-family:var(--font);font-size:.78rem;font-weight:700;color:var(--c2);margin-bottom:.18rem;}
 .lp-feat-d{font-size:.68rem;color:var(--c4);line-height:1.55;}
-</style>
-"""
 
-# ═══════════════════════════════════════════════
-# PINK/WHITE THEME CSS  (Main App page)
-# ═══════════════════════════════════════════════
-PINK_CSS = r"""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-:root {
-  /* ── Pink/White palette ── */
-  --pk0:#fff5f7;        /* page bg: very faint pink-white       */
-  --pk1:#ffffff;        /* card bg: pure white                  */
-  --pk2:#fff0f3;        /* surface: soft rose tint              */
-  --pk3:#ffe4eb;        /* elevated surface                     */
-  --pk4:#ffd6e0;        /* border tint                          */
-  --pk5:#ffb3c6;        /* accent border                        */
-  --pk6:#ff85a1;        /* strong accent                        */
-  --pk7:#e75480;        /* primary rose                         */
-  --pk8:#c0392b;        /* deep red for danger                  */
-
-  /* text */
-  --tx0:#1a0a0f;        /* near-black on white                  */
-  --tx1:#5c2d3a;        /* dark rose text                       */
-  --tx2:#8b4a5c;        /* medium rose muted                    */
-  --tx3:#b07080;        /* light muted                          */
-  --tx4:#c9a0ac;        /* very muted                           */
-
-  /* status */
-  --green:#22a559;--greenbg:rgba(34,165,89,.08);--greenbdr:rgba(34,165,89,.25);
-  --amber:#c97d0e;--amberbg:rgba(201,125,14,.08);--amberbdr:rgba(201,125,14,.25);
-  --red:#d63b3b;--redbg:rgba(214,59,59,.08);--redbdr:rgba(214,59,59,.25);
-
-  --r:10px;--rl:16px;--rxl:22px;
-  --sh:0 2px 12px rgba(231,84,128,.07);
-  --shm:0 8px 28px rgba(231,84,128,.1);
-  --shl:0 16px 48px rgba(231,84,128,.13);
-  --font:'Outfit',sans-serif;--mono:'JetBrains Mono',monospace;
-}
-
-html,body,[class*="css"]{font-family:var(--font)!important;background:var(--pk0)!important;color:var(--tx0)!important;-webkit-font-smoothing:antialiased;}
-.stApp{background:var(--pk0)!important;min-height:100vh;}
-#MainMenu,footer,header,[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="collapsedControl"]{display:none!important;}
-.block-container{padding-top:0!important;max-width:760px;}
-[data-testid="stSidebar"]{display:none!important;}
-
-/* Buttons */
-.stButton>button{
-  font-family:var(--font)!important;font-weight:700!important;font-size:.87rem!important;
-  border-radius:var(--r)!important;border:1.5px solid var(--pk5)!important;
-  background:linear-gradient(135deg,#ffe0ea,#fff0f3)!important;
-  color:var(--pk7)!important;padding:.6rem 1.5rem!important;
-  box-shadow:var(--sh)!important;transition:all .2s ease!important;
-}
-.stButton>button:hover{
-  background:linear-gradient(135deg,#ffd6e4,#ffe8ee)!important;
-  border-color:var(--pk6)!important;
-  box-shadow:var(--shm)!important;transform:translateY(-2px)!important;
-}
-.stButton>button:active{transform:translateY(0) scale(.98)!important;}
-
-/* File uploader */
-[data-testid="stFileUploader"] section{
-  background:var(--pk2)!important;border:2px dashed var(--pk5)!important;
-  border-radius:var(--rxl)!important;padding:2.4rem!important;transition:all .25s!important;
-}
-[data-testid="stFileUploader"] section:hover{border-color:var(--pk7)!important;background:rgba(231,84,128,.04)!important;}
-[data-testid="stFileUploader"] section p{color:var(--tx3)!important;}
-
-/* Expander */
-details{background:var(--pk1)!important;border:1px solid var(--pk4)!important;border-radius:var(--rl)!important;margin-bottom:.45rem!important;transition:border-color .2s!important;}
-details:hover{border-color:var(--pk5)!important;}
-details summary{color:var(--tx1)!important;font-weight:600!important;font-size:.84rem!important;padding:.8rem 1.1rem!important;cursor:pointer!important;}
-details[open]{border-color:var(--pk6)!important;}
-
-/* Progress */
-.stProgress>div>div{background:linear-gradient(90deg,var(--pk7),var(--pk6))!important;border-radius:999px!important;}
-.stProgress>div{background:var(--pk3)!important;border-radius:999px!important;height:5px!important;}
-
-.stMarkdown p,.stMarkdown li{color:var(--tx2)!important;font-size:.87rem!important;}
-[data-testid="stSelectbox"]>div{background:var(--pk1)!important;border-color:var(--pk4)!important;color:var(--tx0)!important;border-radius:var(--r)!important;}
-
-/* Download button */
-[data-testid="stDownloadButton"]>button{
-  font-family:var(--font)!important;font-weight:600!important;font-size:.82rem!important;
-  background:var(--pk1)!important;border:1px solid var(--pk4)!important;
-  color:var(--tx2)!important;border-radius:var(--r)!important;padding:.5rem 1.2rem!important;transition:all .2s!important;
-}
-[data-testid="stDownloadButton"]>button:hover{border-color:var(--pk6)!important;color:var(--pk7)!important;background:rgba(231,84,128,.04)!important;}
-
-/* Captions */
-.stCaption p{color:var(--tx4)!important;}
-
-@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@keyframes barGrow{from{width:0}}
-@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(231,84,128,.28)}60%{box-shadow:0 0 0 10px transparent}}
-@keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
-@keyframes dotPulse{0%,80%,100%{opacity:.2;transform:scale(.7)}40%{opacity:1;transform:scale(1.1)}}
-@keyframes scanLine{0%{top:-3px}100%{top:104%}}
-@keyframes slideIn{from{transform:translateX(-10px);opacity:0}to{transform:translateX(0);opacity:1}}
-@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
-
-/* ── TOP BAR ── */
-.app-topbar{display:flex;align-items:center;gap:.75rem;padding:1.1rem 0 .55rem;border-bottom:1.5px solid var(--pk4);margin-bottom:1.5rem;animation:fadeIn .4s ease both;}
+/* ══════ APP TOP BAR ══════ */
+.app-topbar{display:flex;align-items:center;gap:.75rem;padding:1.1rem 0 .55rem;border-bottom:1px solid var(--bd);margin-bottom:1.5rem;animation:fadeIn .4s ease both;}
 .app-topbar-brand{display:flex;align-items:center;gap:.65rem;flex:1;}
-.app-topbar-ico{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--pk3),var(--pk4));border:1px solid var(--pk5);display:flex;align-items:center;justify-content:center;font-size:1.1rem;box-shadow:var(--sh);}
-.app-topbar-name{font-family:var(--font);font-size:1.05rem;font-weight:800;color:var(--tx0);letter-spacing:-.03em;}
-.app-topbar-ver{font-size:.6rem;color:var(--tx4);font-family:var(--mono);}
-.app-topbar-badge{padding:.2rem .7rem;background:linear-gradient(135deg,var(--pk3),var(--pk4));border:1px solid var(--pk5);border-radius:999px;font-family:var(--mono);font-size:.58rem;color:var(--pk7);font-weight:600;}
+.app-topbar-ico{width:32px;height:32px;border-radius:9px;background:rgba(125,219,143,.08);border:1px solid rgba(125,219,143,.2);display:flex;align-items:center;justify-content:center;font-size:1rem;}
+.app-topbar-name{font-family:var(--font);font-size:1rem;font-weight:800;color:var(--cream);letter-spacing:-.03em;}
+.app-topbar-ver{font-size:.6rem;color:var(--c4);font-family:var(--mono);}
+.app-topbar-badge{padding:.18rem .65rem;background:rgba(125,219,143,.08);border:1px solid rgba(125,219,143,.2);border-radius:999px;font-family:var(--mono);font-size:.58rem;color:var(--g);}
 
-.sec-lbl{display:flex;align-items:center;gap:.45rem;font-size:.59rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--tx3);font-family:var(--mono);margin-bottom:.65rem;}
-.sec-lbl::after{content:'';flex:1;height:1px;background:var(--pk4);}
+.sec-lbl{display:flex;align-items:center;gap:.45rem;font-size:.59rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--c4);font-family:var(--mono);margin-bottom:.65rem;}
+.sec-lbl::after{content:'';flex:1;height:1px;background:var(--bd);}
 
-/* ── STATS STRIP ── */
+/* Stats */
 .stats-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-bottom:1.5rem;}
-.stat-box{background:var(--pk1);border:1px solid var(--pk4);border-radius:var(--r);padding:.7rem .4rem;text-align:center;transition:border-color .2s,transform .18s,box-shadow .2s;box-shadow:var(--sh);animation:fadeUp .5s ease both;}
-.stat-box:hover{border-color:var(--pk5);transform:translateY(-2px);box-shadow:var(--shm);}
-.stat-n{font-family:var(--font);font-size:1.45rem;font-weight:800;color:var(--pk7);letter-spacing:-.04em;line-height:1;}
-.stat-l{font-size:.57rem;color:var(--tx4);margin-top:.14rem;letter-spacing:.07em;text-transform:uppercase;font-family:var(--mono);}
+.stat-box{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);padding:.7rem .4rem;text-align:center;transition:border-color .2s,transform .18s;animation:countUp .5s ease both;}
+.stat-box:hover{border-color:rgba(125,219,143,.2);transform:translateY(-2px);}
+.stat-n{font-family:var(--font);font-size:1.45rem;font-weight:800;color:var(--g);letter-spacing:-.04em;line-height:1;}
+.stat-l{font-size:.57rem;color:var(--c4);margin-top:.14rem;letter-spacing:.07em;text-transform:uppercase;font-family:var(--mono);}
 
-/* ── UPLOAD ── */
-.upload-hint{text-align:center;padding:1.4rem 0;font-size:.76rem;color:var(--tx4);font-family:var(--mono);}
-.batch-badge{display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .7rem;background:var(--pk2);border:1px solid var(--pk4);border-radius:999px;font-size:.65rem;font-family:var(--mono);color:var(--tx2);margin-bottom:.65rem;}
+/* Upload */
+.upload-hint{text-align:center;padding:1.4rem 0;font-size:.76rem;color:var(--c4);font-family:var(--mono);}
+.batch-badge{display:inline-flex;align-items:center;gap:.3rem;padding:.2rem .7rem;background:rgba(78,200,98,.07);border:1px solid rgba(125,219,143,.2);border-radius:999px;font-size:.65rem;font-family:var(--mono);color:var(--g);margin-bottom:.65rem;}
 
-/* ── IMAGE PREVIEW ── */
-.img-wrap{background:var(--pk1);border:1px solid var(--pk4);border-radius:var(--rxl);overflow:hidden;box-shadow:var(--shm);animation:fadeIn .3s ease both;transition:transform .2s,box-shadow .2s;}
+/* Image preview */
+.img-wrap{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rxl);overflow:hidden;box-shadow:var(--shm);animation:fadeIn .3s ease both;transition:transform .2s,box-shadow .2s;}
 .img-wrap:hover{transform:translateY(-2px);box-shadow:var(--shl);}
-.img-foot{padding:.5rem .9rem;border-top:1px solid var(--pk3);font-size:.67rem;color:var(--tx3);font-family:var(--mono);display:flex;align-items:center;justify-content:space-between;}
-.img-badge{background:var(--pk3);color:var(--tx1);border:1px solid var(--pk5);border-radius:999px;font-size:.59rem;padding:.04rem .42rem;font-weight:600;}
+.img-foot{padding:.5rem .9rem;border-top:1px solid var(--bd);font-size:.67rem;color:var(--c4);font-family:var(--mono);display:flex;align-items:center;justify-content:space-between;}
+.img-badge{background:rgba(125,219,143,.1);color:var(--g);border:1px solid rgba(125,219,143,.18);border-radius:999px;font-size:.59rem;padding:.04rem .42rem;font-weight:600;}
 
-/* ── CINEMATIC SCAN ── */
-.scan-overlay{background:var(--pk1);border:1.5px solid var(--pk5);border-radius:var(--rxl);padding:0;text-align:center;animation:fadeIn .3s ease both;box-shadow:var(--shl);overflow:hidden;}
-.scan-header{padding:1.8rem 2rem 1.2rem;border-bottom:1px solid var(--pk3);background:linear-gradient(135deg,#fff5f7,#ffe8f0);}
-.scan-icon-wrap{width:60px;height:60px;border-radius:18px;background:linear-gradient(135deg,var(--pk3),var(--pk4));border:1.5px solid var(--pk5);display:inline-flex;align-items:center;justify-content:center;font-size:1.8rem;margin-bottom:1rem;animation:floatY 2s ease-in-out infinite;box-shadow:var(--sh);}
-.scan-title{font-family:var(--font);font-size:1.1rem;font-weight:800;color:var(--tx0);margin-bottom:.25rem;}
-.scan-sub{font-family:var(--mono);font-size:.68rem;color:var(--tx3);}
+/* ══════ CINEMATIC SCAN ══════ */
+.scan-overlay{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rxl);padding:0;text-align:center;animation:screenDim .3s ease both;box-shadow:var(--shl);overflow:hidden;}
+.scan-header{padding:1.8rem 2rem 1.2rem;border-bottom:1px solid var(--bd);}
+.scan-icon-wrap{width:60px;height:60px;border-radius:18px;background:radial-gradient(circle at 35% 32%,rgba(125,219,143,.58),rgba(26,158,48,.16) 62%,transparent 82%);border:1px solid rgba(125,219,143,.26);display:inline-flex;align-items:center;justify-content:center;font-size:1.8rem;margin-bottom:1rem;animation:floatY 2s ease-in-out infinite;}
+.scan-title{font-family:var(--font);font-size:1.1rem;font-weight:800;color:var(--cream);margin-bottom:.25rem;}
+.scan-sub{font-family:var(--mono);font-size:.68rem;color:var(--c4);}
 .scan-body{display:grid;grid-template-columns:1fr 1fr;min-height:220px;}
-.scan-img-side{position:relative;overflow:hidden;background:var(--pk2);}
-.scan-img-side img{width:100%;height:220px;object-fit:cover;display:block;}
-.scanline-bar{position:absolute;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,var(--pk7),transparent);animation:scanLine 1.5s ease-in-out infinite;box-shadow:0 0 10px rgba(231,84,128,.6);}
-.scan-step-overlay{position:absolute;bottom:10px;left:10px;right:10px;background:rgba(255,255,255,.88);border:1px solid var(--pk4);border-radius:8px;padding:.4rem .7rem;font-family:var(--mono);font-size:.62rem;color:var(--pk7);backdrop-filter:blur(6px);}
-.scan-right{padding:1.4rem 1.5rem;display:flex;flex-direction:column;justify-content:center;gap:.9rem;background:var(--pk0);}
-.scan-check-row{display:flex;align-items:center;gap:.55rem;font-family:var(--mono);font-size:.72rem;color:var(--tx3);}
-.scan-check-row.active{color:var(--pk7);}
-.scan-check-row.done{color:var(--tx4);}
+.scan-img-side{position:relative;overflow:hidden;background:var(--bg2);}
+.scan-img-side img{width:100%;height:220px;object-fit:cover;display:block;filter:brightness(.85);}
+.scanline-bar{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--g),transparent);animation:scanLine 1.5s ease-in-out infinite;box-shadow:0 0 12px var(--g);}
+.scan-step-overlay{position:absolute;bottom:10px;left:10px;right:10px;background:rgba(5,11,3,.78);border:1px solid rgba(125,219,143,.2);border-radius:8px;padding:.4rem .7rem;font-family:var(--mono);font-size:.62rem;color:var(--g);backdrop-filter:blur(6px);}
+.scan-right{padding:1.4rem 1.5rem;display:flex;flex-direction:column;justify-content:center;gap:.9rem;}
+.scan-check-row{display:flex;align-items:center;gap:.55rem;font-family:var(--mono);font-size:.72rem;color:var(--c3);}
+.scan-check-row.active{color:var(--g);}
+.scan-check-row.done{color:var(--c4);}
 .scan-check-ico{width:18px;height:18px;border-radius:50%;border:1px solid;display:inline-flex;align-items:center;justify-content:center;font-size:.58rem;flex-shrink:0;}
-.scan-check-ico.done-ico{background:var(--greenbg);border-color:var(--greenbdr);color:var(--green);}
-.scan-check-ico.active-ico{background:rgba(231,84,128,.08);border-color:var(--pk5);color:var(--pk7);animation:pulse 1.2s infinite;}
-.scan-check-ico.wait-ico{background:var(--pk2);border-color:var(--pk4);color:var(--tx4);}
-.scan-footer{padding:.9rem 2rem;border-top:1px solid var(--pk3);display:flex;align-items:center;justify-content:space-between;background:var(--pk0);}
-.scan-prog-lbl{font-family:var(--mono);font-size:.63rem;color:var(--tx3);}
+.scan-check-ico.done-ico{background:rgba(125,219,143,.12);border-color:rgba(125,219,143,.3);color:var(--g);}
+.scan-check-ico.active-ico{background:rgba(125,219,143,.08);border-color:rgba(125,219,143,.25);color:var(--g);animation:pulse 1.2s infinite;}
+.scan-check-ico.wait-ico{background:var(--bg4);border-color:var(--bd);color:var(--c4);}
+.scan-footer{padding:.9rem 2rem;border-top:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;}
+.scan-prog-lbl{font-family:var(--mono);font-size:.63rem;color:var(--c3);}
 .scan-dots{display:flex;gap:5px;}
-.scan-dot{width:7px;height:7px;border-radius:50%;background:var(--pk6);}
+.scan-dot{width:7px;height:7px;border-radius:50%;background:var(--g);}
 .scan-dot:nth-child(1){animation:dotPulse 1.1s 0s infinite;}
 .scan-dot:nth-child(2){animation:dotPulse 1.1s .18s infinite;}
 .scan-dot:nth-child(3){animation:dotPulse 1.1s .36s infinite;}
 
-/* ── RESULT CARD ── */
-.result-card{background:var(--pk1);border:1.5px solid var(--pk4);border-radius:var(--rxl);padding:1.8rem 2rem 1.6rem;box-shadow:var(--shm);animation:fadeUp .5s ease both;position:relative;overflow:hidden;margin-bottom:.75rem;transition:box-shadow .25s,transform .25s;}
-.result-card:hover{transform:translateY(-2px);box-shadow:var(--shl);}
-.result-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--pk6),var(--pk7),#c0392b);}
-.result-card.diseased::before{background:linear-gradient(90deg,#c0392b,var(--red))!important;}
-.result-card.amber::before{background:linear-gradient(90deg,var(--amber),#f6ad55)!important;}
-.result-card.healthy-card::before{background:linear-gradient(90deg,var(--green),#68d391)!important;}
+/* ══════ RESULT CARD ══════ */
+.result-card{background:var(--bg2);border:1.5px solid rgba(125,219,143,.2);border-radius:var(--rxl);padding:1.8rem 2rem 1.6rem;box-shadow:var(--shl),0 0 70px rgba(125,219,143,.04);animation:fadeUp .5s ease both;position:relative;overflow:hidden;margin-bottom:.75rem;transition:box-shadow .25s,transform .25s;}
+.result-card:hover{transform:translateY(-2px);box-shadow:0 20px 70px rgba(0,0,0,.8),0 0 90px rgba(125,219,143,.06);}
+.result-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--gdark),var(--g),#a3e635);}
+.result-card::after{content:'';position:absolute;top:-50%;left:-120%;width:50%;height:200%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.025),transparent);transform:skewX(-20deg);transition:left .8s ease;}
+.result-card:hover::after{left:200%;}
+.result-card.diseased{border-color:rgba(255,112,112,.25)!important;}
+.result-card.diseased::before{background:linear-gradient(90deg,#7f1d1d,#ff7070)!important;}
+.result-card.amber{border-color:rgba(245,200,66,.25)!important;}
+.result-card.amber::before{background:linear-gradient(90deg,#78350f,#f5c842)!important;}
 
 /* Tag */
 .r-tag{display:inline-flex;align-items:center;gap:.3rem;font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:.2rem .85rem;border-radius:999px;margin-bottom:.8rem;font-family:var(--mono);}
-.r-ok{background:var(--greenbg);color:var(--green);border:1px solid var(--greenbdr);}
-.r-bad{background:var(--redbg);color:var(--red);border:1px solid var(--redbdr);}
-.r-warn{background:var(--amberbg);color:var(--amber);border:1px solid var(--amberbdr);}
+.r-ok{background:rgba(125,219,143,.09);color:var(--g);border:1px solid rgba(125,219,143,.25);}
+.r-bad{background:var(--redbg);color:var(--red);border:1px solid rgba(255,112,112,.25);}
+.r-warn{background:var(--amberbg);color:var(--amber);border:1px solid rgba(245,200,66,.25);}
 
+/* Top grid */
 .r-grid{display:grid;grid-template-columns:1fr 100px;gap:1.1rem;align-items:start;}
-.r-name{font-family:var(--font);font-size:2rem;font-weight:900;letter-spacing:-.055em;color:var(--tx0);line-height:1.04;margin-bottom:.12rem;}
-.r-sci{font-size:.77rem;color:var(--tx3);font-style:italic;margin-bottom:1.1rem;}
-
-/* Confidence ring */
+.r-name{font-family:var(--font);font-size:2rem;font-weight:900;letter-spacing:-.055em;color:var(--cream);line-height:1.04;margin-bottom:.12rem;}
+.r-sci{font-size:.77rem;color:var(--c4);font-style:italic;margin-bottom:1.1rem;}
 .conf-wrap{display:flex;flex-direction:column;align-items:center;gap:.25rem;}
 .conf-ring{position:relative;width:94px;height:94px;}
 .conf-ring svg{transform:rotate(-90deg);}
-.cr-bg{fill:none;stroke:var(--pk3);stroke-width:7;}
+.cr-bg{fill:none;stroke:rgba(255,255,255,.05);stroke-width:7;}
 .cr-fill{fill:none;stroke-width:7;stroke-linecap:round;transition:stroke-dashoffset 1.4s cubic-bezier(.4,0,.2,1);}
 .cr-text{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
-.cr-pct{font-family:var(--font);font-size:1.15rem;font-weight:800;color:var(--tx0);line-height:1;}
-.cr-lbl{font-size:.5rem;color:var(--tx4);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;}
-.cr-sub{font-size:.58rem;color:var(--tx4);font-family:var(--mono);}
+.cr-pct{font-family:var(--font);font-size:1.15rem;font-weight:800;color:var(--cream);line-height:1;}
+.cr-lbl{font-size:.5rem;color:var(--c4);font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;}
+.cr-sub{font-size:.58rem;color:var(--c4);font-family:var(--mono);}
 
+/* Confidence bar */
 .r-ch{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.3rem;}
-.r-cl{font-size:.6rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tx3);font-family:var(--mono);}
-.r-cv{font-family:var(--font);font-size:1.6rem;font-weight:800;letter-spacing:-.05em;color:var(--tx0);}
-.r-bt{height:5px;background:var(--pk3);border-radius:999px;overflow:hidden;margin-bottom:1.2rem;}
+.r-cl{font-size:.6rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--c4);font-family:var(--mono);}
+.r-cv{font-family:var(--font);font-size:1.6rem;font-weight:800;letter-spacing:-.05em;color:var(--cream);}
+.r-bt{height:5px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden;margin-bottom:1.2rem;}
 .r-bf{height:100%;border-radius:999px;animation:barGrow 1s cubic-bezier(.4,0,.2,1) both;}
 
+/* Quick stats */
 .r-quick{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-bottom:1rem;}
-.r-qs{background:var(--pk2);border:1px solid var(--pk3);border-radius:var(--r);padding:.55rem .7rem;text-align:center;}
-.r-qs-l{font-family:var(--mono);font-size:.54rem;color:var(--tx4);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.2rem;}
-.r-qs-v{font-family:var(--font);font-size:.88rem;font-weight:700;color:var(--tx1);}
+.r-qs{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:.55rem .7rem;text-align:center;}
+.r-qs-l{font-family:var(--mono);font-size:.54rem;color:var(--c4);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.2rem;}
+.r-qs-v{font-family:var(--font);font-size:.88rem;font-weight:700;color:var(--c2);}
 
 .urgency-badge{display:inline-flex;align-items:center;gap:.3rem;font-size:.62rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:.22rem .78rem;border-radius:999px;font-family:var(--mono);margin-top:.6rem;}
-.r-meta{font-size:.64rem;color:var(--tx4);font-family:var(--mono);display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.8rem;}
+.r-meta{font-size:.64rem;color:var(--c4);font-family:var(--mono);display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.8rem;}
 
-/* ── GRAD-CAM PANEL ── */
-.gradcam-panel{background:var(--pk1);border:1px solid var(--pk4);border-radius:var(--rxl);overflow:hidden;animation:fadeUp .5s .1s ease both;margin-bottom:.75rem;box-shadow:var(--sh);}
-.gradcam-header{padding:.7rem 1.2rem;border-bottom:1px solid var(--pk3);font-family:var(--mono);font-size:.59rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--tx3);display:flex;align-items:center;justify-content:space-between;background:var(--pk0);}
+/* ══════ GRADCAM PANEL ══════ */
+.gradcam-panel{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rxl);overflow:hidden;animation:fadeUp .5s .1s ease both;margin-bottom:.75rem;}
+.gradcam-header{padding:.7rem 1.2rem;border-bottom:1px solid var(--bd);font-family:var(--mono);font-size:.59rem;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--c4);display:flex;align-items:center;justify-content:space-between;}
 .gradcam-body{display:grid;grid-template-columns:1fr 1fr;}
 .gradcam-img-wrap{position:relative;overflow:hidden;}
 .gradcam-img-wrap img{width:100%;height:240px;object-fit:cover;display:block;}
-.gradcam-badge{position:absolute;top:10px;left:10px;background:rgba(255,255,255,.9);border:1px solid var(--pk4);border-radius:7px;padding:.25rem .55rem;font-size:.58rem;font-family:var(--mono);color:var(--pk7);backdrop-filter:blur(5px);}
-.gradcam-right{padding:1.3rem 1.4rem;display:flex;flex-direction:column;gap:.55rem;justify-content:center;background:var(--pk0);}
-.gcd-title{font-family:var(--font);font-size:1.05rem;font-weight:800;color:var(--tx0);line-height:1.2;}
-.gcd-sci{font-size:.72rem;color:var(--tx3);font-style:italic;}
-.gcd-why{font-size:.78rem;color:var(--tx2);line-height:1.65;margin-top:.2rem;}
+.gradcam-badge{position:absolute;top:10px;left:10px;background:rgba(5,11,3,.82);border:1px solid rgba(125,219,143,.25);border-radius:7px;padding:.25rem .55rem;font-size:.58rem;font-family:var(--mono);color:var(--g);backdrop-filter:blur(5px);}
+.gradcam-right{padding:1.3rem 1.4rem;display:flex;flex-direction:column;gap:.55rem;justify-content:center;}
+.gcd-title{font-family:var(--font);font-size:1.05rem;font-weight:800;color:var(--cream);line-height:1.2;}
+.gcd-sci{font-size:.72rem;color:var(--c4);font-style:italic;}
+.gcd-why{font-size:.78rem;color:var(--c2);line-height:1.65;margin-top:.2rem;}
 .prob-row{display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem;}
-.prob-name{font-size:.64rem;font-family:var(--mono);color:var(--tx3);width:86px;flex-shrink:0;}
-.prob-tr{flex:1;height:4px;background:var(--pk3);border-radius:999px;overflow:hidden;}
-.prob-fill{height:100%;border-radius:999px;animation:barGrow .65s cubic-bezier(.4,0,.2,1) both;}
-.prob-hi{background:linear-gradient(90deg,var(--pk7),var(--pk6))!important;}
-.prob-bad{background:linear-gradient(90deg,#c0392b,var(--red))!important;}
-.prob-warn{background:linear-gradient(90deg,var(--amber),#f6ad55)!important;}
-.prob-ok{background:linear-gradient(90deg,var(--green),#68d391)!important;}
-.prob-pct{font-size:.63rem;font-family:var(--mono);color:var(--tx3);width:32px;text-align:right;}
+.prob-name{font-size:.64rem;font-family:var(--mono);color:var(--c3);width:86px;flex-shrink:0;}
+.prob-tr{flex:1;height:4px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden;}
+.prob-fill{height:100%;border-radius:999px;background:var(--bg5);animation:barGrow .65s cubic-bezier(.4,0,.2,1) both;}
+.prob-hi{background:linear-gradient(90deg,var(--gdark),var(--g))!important;}
+.prob-bad{background:linear-gradient(90deg,#7f1d1d,var(--red))!important;}
+.prob-warn{background:linear-gradient(90deg,#78350f,var(--amber))!important;}
+.prob-pct{font-size:.63rem;font-family:var(--mono);color:var(--c3);width:32px;text-align:right;}
 
-/* ── AI EXPLANATION ── */
-.explain-card{background:var(--pk1);border:1px solid var(--pk4);border-radius:var(--rxl);padding:1.5rem 1.6rem;animation:fadeUp .5s .15s ease both;margin-bottom:.75rem;box-shadow:var(--sh);}
+/* ══════ AI EXPLANATION ══════ */
+.explain-card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rxl);padding:1.5rem 1.6rem;animation:fadeUp .5s .15s ease both;margin-bottom:.75rem;}
+.explain-head{display:flex;align-items:center;gap:.5rem;font-family:var(--font);font-size:.9rem;font-weight:700;color:var(--c2);margin-bottom:1rem;}
 .explain-grid{display:grid;grid-template-columns:1fr 1fr;gap:.65rem;}
-.explain-box{background:var(--pk0);border:1px solid var(--pk3);border-radius:var(--rl);padding:1rem 1.1rem;}
-.explain-box-h{font-size:.58rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--tx3);font-family:var(--mono);margin-bottom:.6rem;}
-.explain-box-b{font-size:.79rem;color:var(--tx2);line-height:1.7;}
-.sym-chip{display:inline-block;background:var(--pk2);border:1px solid var(--pk4);border-radius:6px;font-size:.7rem;color:var(--tx1);padding:.16rem .5rem;margin:.1rem .04rem;line-height:1.45;}
-.step-row{display:flex;align-items:flex-start;gap:.45rem;margin-bottom:.35rem;font-size:.77rem;color:var(--tx2);line-height:1.62;}
-.step-num{background:var(--pk3);color:var(--pk7);border:1px solid var(--pk5);border-radius:999px;width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:700;font-family:var(--mono);margin-top:.1rem;}
+.explain-box{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--rl);padding:1rem 1.1rem;}
+.explain-box-h{font-size:.58rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--c4);font-family:var(--mono);margin-bottom:.6rem;}
+.explain-box-b{font-size:.79rem;color:var(--c2);line-height:1.7;}
+.sym-chip{display:inline-block;background:var(--bg4);border:1px solid var(--bd);border-radius:6px;font-size:.7rem;color:var(--c2);padding:.16rem .5rem;margin:.1rem .04rem;line-height:1.45;}
+.step-row{display:flex;align-items:flex-start;gap:.45rem;margin-bottom:.35rem;font-size:.77rem;color:var(--c2);line-height:1.62;}
+.step-num{background:rgba(125,219,143,.1);color:var(--g);border:1px solid rgba(125,219,143,.22);border-radius:999px;width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:700;font-family:var(--mono);margin-top:.1rem;}
 .sev-badge-lg{display:inline-block;margin-top:.7rem;font-size:.62rem;font-weight:700;letter-spacing:.08em;font-family:var(--mono);padding:.2rem .65rem;border-radius:999px;}
 
-/* ── FARMER INTEL ── */
-.farmer-card{background:var(--pk1);border:1px solid var(--pk4);border-radius:var(--rl);padding:1.2rem 1.3rem;animation:fadeUp .5s .2s ease both;margin-bottom:.75rem;box-shadow:var(--sh);}
-.farmer-head{display:flex;align-items:center;gap:.45rem;font-family:var(--font);font-size:.88rem;font-weight:700;color:var(--tx0);margin-bottom:.65rem;}
-.farmer-body{font-size:.8rem;color:var(--tx2);line-height:1.72;}
-.weather-note{margin-top:.75rem;padding:.6rem .85rem;background:var(--pk2);border-radius:8px;border-left:3px solid var(--pk6);font-size:.74rem;color:var(--tx2);line-height:1.6;}
+/* ══════ FARMER INTEL ══════ */
+.farmer-card{background:linear-gradient(135deg,var(--bg3),var(--bg2));border:1px solid rgba(125,219,143,.14);border-radius:var(--rl);padding:1.2rem 1.3rem;animation:fadeUp .5s .2s ease both;margin-bottom:.75rem;}
+.farmer-head{display:flex;align-items:center;gap:.45rem;font-family:var(--font);font-size:.88rem;font-weight:700;color:var(--c2);margin-bottom:.65rem;}
+.farmer-body{font-size:.8rem;color:var(--c2);line-height:1.72;}
+.weather-note{margin-top:.75rem;padding:.6rem .85rem;background:var(--bg4);border-radius:8px;border-left:2px solid rgba(125,219,143,.32);font-size:.74rem;color:var(--c3);line-height:1.6;}
 
-/* ── CHARTS ── */
+/* ══════ CHARTS ══════ */
 .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-bottom:.75rem;}
-.chart-card{background:var(--pk1);border:1px solid var(--pk4);border-radius:var(--rl);padding:1.15rem 1.2rem;transition:border-color .18s;animation:fadeUp .5s .15s ease both;box-shadow:var(--sh);}
-.chart-card:hover{border-color:var(--pk5);}
-.chart-title{font-family:var(--mono);font-size:.58rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--tx3);margin-bottom:.9rem;}
+.chart-card{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rl);padding:1.15rem 1.2rem;transition:border-color .18s;animation:fadeUp .5s .15s ease both;}
+.chart-card:hover{border-color:var(--bd2);}
+.chart-title{font-family:var(--mono);font-size:.58rem;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--c4);margin-bottom:.9rem;}
 .gauge-num{font-family:var(--font);font-size:2rem;font-weight:800;letter-spacing:-.05em;line-height:1;}
-.gauge-lbl{font-size:.6rem;font-family:var(--mono);color:var(--tx4);text-transform:uppercase;letter-spacing:.07em;margin-top:.18rem;}
-.gauge-bar{height:8px;background:linear-gradient(90deg,#22c55e,#fcd34d,#ef4444);border-radius:999px;margin:.6rem 0 .25rem;position:relative;}
-.gauge-needle{position:absolute;top:-5px;width:3px;height:18px;background:var(--tx0);border-radius:999px;transform:translateX(-50%);transition:left 1.3s cubic-bezier(.4,0,.2,1);box-shadow:0 0 4px rgba(0,0,0,.25);}
-.gauge-scale{display:flex;justify-content:space-between;font-size:.58rem;font-family:var(--mono);color:var(--tx4);}
+.gauge-lbl{font-size:.6rem;font-family:var(--mono);color:var(--c4);text-transform:uppercase;letter-spacing:.07em;margin-top:.18rem;}
+.gauge-bar{height:7px;background:linear-gradient(90deg,#22c55e,#fcd34d,#ef4444);border-radius:999px;margin:.6rem 0 .25rem;position:relative;}
+.gauge-needle{position:absolute;top:-5px;width:3px;height:17px;background:var(--cream);border-radius:999px;transform:translateX(-50%);transition:left 1.3s cubic-bezier(.4,0,.2,1);box-shadow:0 0 5px rgba(0,0,0,.5);}
+.gauge-scale{display:flex;justify-content:space-between;font-size:.58rem;font-family:var(--mono);color:var(--c4);}
 .donut-row{display:flex;align-items:center;gap:.85rem;}
 .donut-lgd{display:flex;flex-direction:column;gap:.32rem;}
-.donut-item{display:flex;align-items:center;gap:.38rem;font-size:.65rem;font-family:var(--mono);color:var(--tx2);}
+.donut-item{display:flex;align-items:center;gap:.38rem;font-size:.65rem;font-family:var(--mono);color:var(--c3);}
 .donut-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
-.donut-big{font-family:var(--font);font-size:1.3rem;font-weight:800;color:var(--tx0);letter-spacing:-.04em;margin-bottom:.08rem;}
-.donut-sub{font-size:.58rem;font-family:var(--mono);color:var(--tx4);text-transform:uppercase;letter-spacing:.07em;}
+.donut-big{font-family:var(--font);font-size:1.3rem;font-weight:800;color:var(--cream);letter-spacing:-.04em;margin-bottom:.08rem;}
+.donut-sub{font-size:.58rem;font-family:var(--mono);color:var(--c4);text-transform:uppercase;letter-spacing:.07em;}
 
-/* ── WEATHER ── */
+/* ══════ WEATHER ══════ */
 .weather-chips{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-bottom:.65rem;}
-.wchip{background:var(--pk1);border:1px solid var(--pk4);border-radius:var(--r);padding:.75rem .7rem;cursor:pointer;transition:all .18s;text-align:center;box-shadow:var(--sh);}
-.wchip:hover{border-color:var(--pk6);transform:translateY(-2px);box-shadow:var(--shm);}
-.wchip.sel{border-color:var(--pk7)!important;background:rgba(231,84,128,.04)!important;}
+.wchip{background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r);padding:.75rem .7rem;cursor:pointer;transition:all .18s;text-align:center;}
+.wchip:hover{border-color:var(--bd2);transform:translateY(-2px);}
+.wchip.sel{border-color:rgba(125,219,143,.38)!important;background:rgba(78,200,98,.05)!important;}
 .wc-ico{font-size:1.3rem;margin-bottom:.28rem;}
-.wc-lbl{font-size:.67rem;font-family:var(--mono);color:var(--tx2);margin-bottom:.22rem;}
+.wc-lbl{font-size:.67rem;font-family:var(--mono);color:var(--c3);margin-bottom:.22rem;}
 .wc-risk{font-size:.6rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-family:var(--mono);}
-.risk-result{padding:.9rem 1.1rem;border-radius:var(--r);font-size:.8rem;font-family:var(--mono);color:var(--tx2);margin-top:.45rem;line-height:1.65;background:var(--pk0);border:1px solid var(--pk4);}
+.risk-result{padding:.9rem 1.1rem;border-radius:var(--r);font-size:.8rem;font-family:var(--mono);color:var(--c2);margin-top:.45rem;line-height:1.65;}
 
-/* ── HISTORY ── */
-.hist-row{display:flex;align-items:center;gap:.7rem;padding:.6rem .85rem;background:var(--pk1);border:1px solid var(--pk4);border-radius:var(--r);margin-bottom:.35rem;font-size:.79rem;transition:border-color .18s,transform .18s;animation:slideIn .3s ease both;box-shadow:var(--sh);}
-.hist-row:hover{border-color:var(--pk5);transform:translateX(3px);box-shadow:var(--shm);}
+/* ══════ HISTORY ══════ */
+.hist-row{display:flex;align-items:center;gap:.7rem;padding:.6rem .85rem;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:.35rem;font-size:.79rem;transition:border-color .18s,transform .18s;animation:slideIn .3s ease both;}
+.hist-row:hover{border-color:var(--bd2);transform:translateX(3px);}
 .hist-ico{font-size:1rem;flex-shrink:0;}
-.hist-name{font-family:var(--font);font-weight:600;color:var(--tx0);flex:1;font-size:.8rem;}
-.hist-conf{font-family:var(--mono);font-size:.69rem;color:var(--tx3);}
-.hist-time{font-family:var(--mono);font-size:.62rem;color:var(--tx4);}
+.hist-name{font-family:var(--font);font-weight:600;color:var(--c2);flex:1;font-size:.8rem;}
+.hist-conf{font-family:var(--mono);font-size:.69rem;color:var(--c3);}
+.hist-time{font-family:var(--mono);font-size:.62rem;color:var(--c4);}
 .hist-tag{font-family:var(--mono);font-size:.62rem;font-weight:700;padding:.12rem .48rem;border-radius:999px;}
-.ht-ok{background:var(--greenbg);color:var(--green);border:1px solid var(--greenbdr);}
-.ht-bad{background:var(--redbg);color:var(--red);border:1px solid var(--redbdr);}
-.ht-warn{background:var(--amberbg);color:var(--amber);border:1px solid var(--amberbdr);}
+.ht-ok{background:rgba(125,219,143,.09);color:var(--g);border:1px solid rgba(125,219,143,.2);}
+.ht-bad{background:var(--redbg);color:var(--red);border:1px solid rgba(255,112,112,.2);}
+.ht-warn{background:var(--amberbg);color:var(--amber);border:1px solid rgba(245,200,66,.2);}
 
-/* ── DEMO ── */
+/* ══════ DEMO ══════ */
 .demo-grid{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-top:.85rem;}
-.demo-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .8rem;background:var(--pk1);border:1px solid var(--pk4);border-radius:999px;font-size:.7rem;color:var(--tx2);font-family:var(--mono);transition:all .18s;box-shadow:var(--sh);}
-.demo-chip:hover{border-color:var(--pk6);color:var(--pk7);background:rgba(231,84,128,.04);box-shadow:var(--shm);}
+.demo-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .8rem;background:var(--bg3);border:1px solid var(--bd);border-radius:999px;font-size:.7rem;color:var(--c2);font-family:var(--mono);transition:all .18s;}
+.demo-chip:hover{border-color:rgba(125,219,143,.32);color:var(--g);background:rgba(78,200,98,.05);}
 
-/* ── FOOTER ── */
-.app-footer{text-align:center;padding:2rem 0 1rem;font-size:.64rem;color:var(--tx4);font-family:var(--mono);border-top:1px solid var(--pk4);margin-top:2.5rem;line-height:1.9;}
-
-/* ── PINK DIVIDER ── */
-.pk-divider{height:1px;background:linear-gradient(90deg,transparent,var(--pk5),transparent);margin:1.5rem 0;border:none;}
+/* Footer */
+.app-footer{text-align:center;padding:2rem 0 1rem;font-size:.64rem;color:var(--c4);font-family:var(--mono);border-top:1px solid var(--bd);margin-top:2.5rem;line-height:1.9;}
 </style>
-"""
-
-
-def conf_ring_html(conf: float, color: str) -> str:
-    R = 38
-    C = 2 * 3.14159 * R
-    offset = C * (1 - conf)
-    return f"""
-<div class="conf-wrap">
-  <div class="conf-ring">
-    <svg width="94" height="94" viewBox="0 0 94 94">
-      <circle class="cr-bg" cx="47" cy="47" r="{R}"/>
-      <circle class="cr-fill" cx="47" cy="47" r="{R}"
-        stroke="{color}"
-        stroke-dasharray="{C:.2f}"
-        stroke-dashoffset="{offset:.2f}"/>
-    </svg>
-    <div class="cr-text">
-      <div class="cr-pct">{conf*100:.0f}%</div>
-      <div class="cr-lbl">Conf</div>
-    </div>
-  </div>
-  <div class="cr-sub">Confidence</div>
-</div>"""
+""", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════
-# LOADING PAGE  (dark)
+# LOADING PAGE
 # ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════
+# PAGE: LOADING  (dark theme)
+# Shown on first load. Displays an animated 2.2s splash screen then
+# auto-transitions to the landing page via st.rerun().
+# The CSS loading bar animation duration (2.1s) matches the sleep.
+# ═══════════════════════════════════════════════════════════════════
 def loading_page():
-    st.markdown(DARK_CSS, unsafe_allow_html=True)
+    inject_css()
     st.markdown("""
 <div class="ls-screen">
   <div class="ls-orb">🌿</div>
@@ -624,7 +666,7 @@ def loading_page():
   <div class="ls-dots">
     <div class="ls-dot"></div><div class="ls-dot"></div><div class="ls-dot"></div>
   </div>
-  <div class="ls-powered">CornScan AI Engine · v6.0 Ultimate · Pink Edition</div>
+  <div class="ls-powered">CornScan AI Engine · v6.0 Ultimate</div>
 </div>
 """, unsafe_allow_html=True)
     time.sleep(2.2)
@@ -633,10 +675,16 @@ def loading_page():
 
 
 # ═══════════════════════════════════════════════
-# LANDING PAGE  (dark)
+# LANDING PAGE
 # ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════
+# PAGE: LANDING  (dark theme)
+# Marketing / hero page. Fixed gradient blobs + dot-grid provide
+# atmosphere behind the content (lp-bg + lp-grid, z-index:0).
+# Content sits on z-index:1. Single "Launch" CTA sets page="main".
+# ═══════════════════════════════════════════════════════════════════
 def landing_page():
-    st.markdown(DARK_CSS, unsafe_allow_html=True)
+    inject_css()
     st.markdown("""
 <div class="lp-bg"></div><div class="lp-grid"></div>
 <div class="lp-wrap">
@@ -663,30 +711,84 @@ def landing_page():
   </div>
 </div>
 """, unsafe_allow_html=True)
-
     c1, c2, c3 = st.columns([1.4, 2, 1.4])
     with c2:
         if st.button("🚀  Launch CornScan AI v6", use_container_width=True):
             st.session_state.page = "main"
             st.rerun()
-
-    st.markdown('<div style="position:relative;z-index:1;text-align:center;margin-top:.8rem;font-size:.63rem;color:#3e3b34;font-family:\'JetBrains Mono\',monospace;">Powered by CornScan AI Engine · TensorFlow · Keras · Streamlit · No data leaves your device</div>', unsafe_allow_html=True)
+    st.markdown('<div style="position:relative;z-index:1;text-align:center;margin-top:.8rem;font-size:.63rem;color:var(--c4);font-family:var(--mono);">Powered by CornScan AI Engine · TensorFlow · Keras · Streamlit · No data leaves your device</div>', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════
-# MAIN APP  (white + pink)
+# CONFIDENCE RING
 # ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════
+# CONFIDENCE RING  (inline SVG)
+# Renders a circular arc showing the confidence percentage.
+# How it works:
+#   · SVG is rotated -90deg so the arc starts at 12 o'clock
+#   · stroke-dasharray = circumference  (full circle dashed)
+#   · stroke-dashoffset = C × (1 - conf)  (hidden portion)
+#   · CSS transition animates from C (fully hidden) to target offset
+#   · Result: arc fills clockwise to match the confidence value
+# ═══════════════════════════════════════════════════════════════════
+def conf_ring_html(conf: float, color: str) -> str:
+    """
+    Build SVG confidence ring HTML. conf ∈ [0,1], color = hex string.
+    """
+    R = 38
+    C = 2 * 3.14159 * R
+    offset = C * (1 - conf)
+    return f"""
+<div class="conf-wrap">
+  <div class="conf-ring">
+    <svg width="94" height="94" viewBox="0 0 94 94">
+      <circle class="cr-bg" cx="47" cy="47" r="{R}"/>
+      <circle class="cr-fill" cx="47" cy="47" r="{R}"
+        stroke="{color}"
+        stroke-dasharray="{C:.2f}"
+        stroke-dashoffset="{offset:.2f}"/>
+    </svg>
+    <div class="cr-text">
+      <div class="cr-pct">{conf*100:.0f}%</div>
+      <div class="cr-lbl">Conf</div>
+    </div>
+  </div>
+  <div class="cr-sub">Confidence</div>
+</div>"""
+
+
+# ═══════════════════════════════════════════════
+# MAIN APP
+# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════
+# PAGE: MAIN APP  (pink/white theme)
+# Core diagnostic interface. Renders in this order:
+#   1.  Top bar (brand name, version, live badge)
+#   2.  Back-to-home button + session stats strip (4 counters)
+#   3.  Demo mode selector (4 disease chips + selectbox)
+#   4.  File uploader + image previews + Analyze button
+#   5.  Cinematic scan animation (while inference runs)
+#   6.  Diagnosis result cards (confidence ring, bar, quick stats)
+#   7.  Export report download button
+#   8.  Grad-CAM heatmap panels (image + probability bars + why-text)
+#   9.  AI Explanation panel (2×2 grid in expandable sections)
+#  10.  Risk dashboard (gauge meter + field health donut)
+#  11.  Farmer Intelligence cards
+#  12.  Weather Risk widget (4 condition chips + selectbox)
+#  13.  Scan History (last 8 entries + clear button)
+#  14.  Footer
+# ═══════════════════════════════════════════════════════════════════
 def main_app():
-    st.markdown(PINK_CSS, unsafe_allow_html=True)
+    inject_css()
 
-    # Top bar
     st.markdown("""
 <div class="app-topbar">
   <div class="app-topbar-brand">
-    <div class="app-topbar-ico">🌽</div>
+    <div class="app-topbar-ico">🌿</div>
     <div>
       <div class="app-topbar-name">CornScan AI</div>
-      <div class="app-topbar-ver">v6.0 Ultimate · Pink Edition · CNN · TensorFlow · Grad-CAM</div>
+      <div class="app-topbar-ver">v6.0 Ultimate · CNN · TensorFlow · Grad-CAM</div>
     </div>
   </div>
   <span class="app-topbar-badge">● LIVE</span>
@@ -715,7 +817,7 @@ def main_app():
 </div>
 """, unsafe_allow_html=True)
 
-    # Demo
+    # Demo mode
     st.markdown('<div class="sec-lbl">🎯 Quick Demo</div>', unsafe_allow_html=True)
     demo_map = {"🍂 Blight": "Blight", "🟠 Common Rust": "Common Rust", "🩶 Gray Leaf Spot": "Gray Leaf Spot", "✅ Healthy": "Healthy"}
     st.markdown('<div class="demo-grid">' + "".join(f'<span class="demo-chip">{k}</span>' for k in demo_map) + '</div>', unsafe_allow_html=True)
@@ -724,7 +826,7 @@ def main_app():
         label = demo_map[demo_choice]
         info = DISEASE_INFO[label]
         preds_d = {c: float(v) for c, v in zip(CLASSES, np.random.dirichlet(np.ones(4) * 0.4).tolist())}
-        preds_d[label] = max(0.84, preds_d[label])
+        preds_d[label] = max(0.84, preds_d[label])   # force chosen class to be dominant
         total = sum(preds_d.values())
         preds_d = {k: v/total for k, v in preds_d.items()}
         conf = preds_d[label]
@@ -734,11 +836,12 @@ def main_app():
             fname="demo_leaf.jpg", img=None, label=label, conf=conf,
             all_probs=preds_d, ts=ts, info=info, status=status, b64=None, gradcam_b64=None
         )]
+        # Prepend to history (newest first)
         st.session_state.history.insert(0, dict(label=label, conf=conf, ts=ts, fname="demo_leaf.jpg", status=status, info=info))
         st.session_state.scanned += 1
 
     # Upload
-    st.markdown("<hr class='pk-divider'>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<div class="sec-lbl">📁 Upload Leaf Image</div>', unsafe_allow_html=True)
     st.markdown('<span class="batch-badge">📦 Batch Scan Mode — multiple files supported</span>', unsafe_allow_html=True)
     uploaded_files = st.file_uploader("drop", type=["jpg", "jpeg", "png"], accept_multiple_files=True, label_visibility="collapsed")
@@ -771,26 +874,29 @@ def main_app():
         st.markdown("<br>", unsafe_allow_html=True)
         do_analyze = st.button(f"🔬  Analyze {len(valid)} Image{'s' if len(valid) > 1 else ''}", use_container_width=True)
 
-    # ── CINEMATIC SCAN ──
+    # ── CINEMATIC SCAN ──────────────────────────────────────────────────────
     if do_analyze and valid:
         preview_b64 = img_to_b64(valid[0][1])
         scan_steps = [
-            ("Reading leaf texture...",      "Analyzing surface patterns"),
-            ("Checking disease patterns...", "Running CNN feature extraction"),
-            ("Calculating confidence...",    "Softmax probability scoring"),
-            ("Building Grad-CAM heatmap...", "Gradient visualization layer"),
-            ("Generating field report...",   "Compiling diagnosis output"),
+            ("Reading leaf texture...",       "Analyzing surface patterns"),
+            ("Checking disease patterns...",  "Running CNN feature extraction"),
+            ("Calculating confidence...",     "Softmax probability scoring"),
+            ("Building Grad-CAM heatmap...",  "Gradient visualization layer"),
+            ("Generating field report...",    "Compiling diagnosis output"),
         ]
-        placeholder = st.empty()
+        placeholder = st.empty()  # single placeholder re-used across all scan frames
         for step_i, (step_title, step_sub) in enumerate(scan_steps):
             checks = ""
             for ci, (ct, _) in enumerate(scan_steps):
                 if ci < step_i:
-                    cls, ico, row_cls = "done", "✓", "done"
+                    cls, ico = "done", "✓"
+                    row_cls = "done"
                 elif ci == step_i:
-                    cls, ico, row_cls = "active", "●", "active"
+                    cls, ico = "active", "●"
+                    row_cls = "active"
                 else:
-                    cls, ico, row_cls = "wait", "○", ""
+                    cls, ico = "wait", "○"
+                    row_cls = ""
                 checks += f'<div class="scan-check-row {row_cls}"><span class="scan-check-ico {cls}-ico">{ico}</span>{ct}</div>'
 
             placeholder.markdown(f"""
@@ -831,35 +937,26 @@ def main_app():
             st.session_state.history.insert(0, dict(label=label, conf=conf, ts=ts, fname=fname, status=status, info=info))
             st.session_state.scanned += 1
         st.session_state.results = batch
-        st.rerun()
+        st.rerun()   # trigger full re-render to display results sections
 
-    # ── RESULTS ──
+    # ── RESULTS ─────────────────────────────────────────────────────────────
     if st.session_state.results:
         results = st.session_state.results
 
         # 1. Diagnosis Cards
-        st.markdown("<hr class='pk-divider'>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">🧬 Diagnosis</div>', unsafe_allow_html=True)
         for r in results:
             info = r["info"]
             pct = r["conf"] * 100
             status = r["status"]
-            card_cls = {"ok": "healthy-card", "warn": "amber", "bad": "diseased"}.get(status, "")
+            card_cls = {"ok": "", "warn": "amber", "bad": "diseased"}.get(status, "")
             tag_cls  = {"ok": "r-ok", "warn": "r-warn", "bad": "r-bad"}.get(status, "r-ok")
             tag_txt  = {"ok": "⬤ Healthy", "warn": "⬤ Monitor", "bad": "⬤ Disease Detected"}.get(status, "")
-            # Pink-themed gradient bars
-            bar_grad = {
-                "ok":   "linear-gradient(90deg,#22a559,#68d391)",
-                "warn": "linear-gradient(90deg,#c97d0e,#f6ad55)",
-                "bad":  "linear-gradient(90deg,#c0392b,#e53e3e)"
-            }.get(status, "linear-gradient(90deg,var(--pk7),var(--pk6))")
-            ring_col = {"ok": "#22a559", "warn": "#d69e2e", "bad": "#e53e3e"}.get(status, "#e75480")
+            bar_grad = {"ok": "linear-gradient(90deg,#1a9e30,#7ddb8f)", "warn": "linear-gradient(90deg,#78350f,#f5c842)", "bad": "linear-gradient(90deg,#7f1d1d,#ff7070)"}.get(status, "")
+            ring_col = {"ok": "#7ddb8f", "warn": "#f5c842", "bad": "#ff7070"}.get(status, "#7ddb8f")
             urg = info["urgency"]
-            urg_style = {
-                "HIGH":   "background:var(--redbg);color:var(--red);border:1px solid var(--redbdr);",
-                "MEDIUM": "background:var(--amberbg);color:var(--amber);border:1px solid var(--amberbdr);",
-                "NONE":   "background:var(--greenbg);color:var(--green);border:1px solid var(--greenbdr);"
-            }.get(urg, "")
+            urg_style = {"HIGH": "background:rgba(255,112,112,.11);color:#ff7070;border:1px solid rgba(255,112,112,.28);", "MEDIUM": "background:rgba(245,200,66,.11);color:#f5c842;border:1px solid rgba(245,200,66,.28);", "NONE": "background:rgba(125,219,143,.09);color:#7ddb8f;border:1px solid rgba(125,219,143,.25);"}.get(urg, "")
             urg_txt = {"HIGH": "🚨 Urgent Treatment Required", "MEDIUM": "⚠️ Monitor Closely", "NONE": "✅ No Action Needed"}.get(urg, "")
             ring = conf_ring_html(r["conf"], ring_col)
 
@@ -891,21 +988,23 @@ def main_app():
         fname_out = f"cornscan_v6_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.txt"
         st.download_button("📄  Export Full Diagnosis Report", data=report_bytes, file_name=fname_out, mime="text/plain", use_container_width=True)
 
-        # 3. Grad-CAM
-        st.markdown("<hr class='pk-divider'>", unsafe_allow_html=True)
+        # 3. Grad-CAM Panel
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">🔥 Grad-CAM Heatmap Analysis</div>', unsafe_allow_html=True)
         for r in results:
             info = r["info"]
             status = r["status"]
+            # prob bars
             prob_bars = ""
             for cls in CLASSES:
                 p = r["all_probs"][cls]
                 if cls == r["label"]:
-                    fill_cls = {"ok": "prob-ok", "warn": "prob-warn", "bad": "prob-bad"}.get(status, "prob-hi")
+                    fill_cls = {"ok": "prob-hi", "warn": "prob-warn", "bad": "prob-bad"}.get(status, "prob-hi")
                 else:
                     fill_cls = ""
                 prob_bars += f'<div class="prob-row"><span class="prob-name">{cls}</span><div class="prob-tr"><div class="prob-fill {fill_cls}" style="width:{p*100:.1f}%"></div></div><span class="prob-pct">{p*100:.1f}%</span></div>'
 
+            # Why text
             why_map = {
                 "Blight": "The model detected elongated chlorotic lesion patterns along the leaf blade, consistent with E. turcicum infection corridors.",
                 "Common Rust": "High-density pustule-like texture clusters identified across both leaf surfaces, matching P. sorghi sporulation signatures.",
@@ -917,13 +1016,13 @@ def main_app():
             img_html = (
                 f'<img src="data:image/jpeg;base64,{r["gradcam_b64"]}" alt="gradcam"/>'
                 if r.get("gradcam_b64") else
-                f'<div style="width:100%;height:240px;display:flex;align-items:center;justify-content:center;font-size:4rem;background:var(--pk2);">{info["icon"]}</div>'
+                f'<div style="width:100%;height:240px;display:flex;align-items:center;justify-content:center;font-size:4rem;background:var(--bg3);">{info["icon"]}</div>'
             )
             st.markdown(f"""
 <div class="gradcam-panel">
   <div class="gradcam-header">
     <span>🔥 Grad-CAM Activation Map · {r['fname']}</span>
-    <span style="color:var(--pk7);">AI Focus Regions Highlighted</span>
+    <span style="color:var(--g);">AI FOCUS REGIONS HIGHLIGHTED</span>
   </div>
   <div class="gradcam-body">
     <div class="gradcam-img-wrap">
@@ -942,8 +1041,8 @@ def main_app():
 </div>
 """, unsafe_allow_html=True)
 
-        # 4. AI Explanation
-        st.markdown("<hr class='pk-divider'>", unsafe_allow_html=True)
+        # 4. AI Explanation Panel
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">🧠 AI Explanation Panel</div>', unsafe_allow_html=True)
         seen = set()
         for r in results:
@@ -961,7 +1060,7 @@ def main_app():
   <div class="explain-box">
     <div class="explain-box-h">📋 Model Analysis</div>
     <div class="explain-box-b">{info['desc']}</div>
-    <span class="sev-badge-lg" style="background:{sc}15;color:{sc};border:1px solid {sc}40;">Severity: {info['severity']}</span>
+    <span class="sev-badge-lg" style="background:{sc}15;color:{sc};border:1px solid {sc}40;">SEVERITY: {info['severity']}</span>
   </div>
   <div class="explain-box">
     <div class="explain-box-h">🔍 Matched Symptoms</div>
@@ -983,8 +1082,8 @@ def main_app():
 </div>
 """, unsafe_allow_html=True)
 
-        # 5. Risk Dashboard
-        st.markdown("<hr class='pk-divider'>", unsafe_allow_html=True)
+        # 5. Charts Dashboard
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">📊 AI Risk Dashboard</div>', unsafe_allow_html=True)
 
         r0 = results[0]
@@ -1016,18 +1115,18 @@ def main_app():
     <div class="chart-title">Field Health Ratio</div>
     <div class="donut-row">
       <svg width="84" height="84" viewBox="0 0 84 84" style="transform:rotate(-90deg);flex-shrink:0;">
-        <circle cx="42" cy="42" r="{R_d}" fill="none" stroke="var(--pk3)" stroke-width="9"/>
-        <circle cx="42" cy="42" r="{R_d}" fill="none" stroke="#22a559" stroke-width="9"
+        <circle cx="42" cy="42" r="{R_d}" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="9"/>
+        <circle cx="42" cy="42" r="{R_d}" fill="none" stroke="#7ddb8f" stroke-width="9"
           stroke-dasharray="{h_arc:.2f} {C_d:.2f}" stroke-linecap="round"/>
-        <circle cx="42" cy="42" r="{R_d}" fill="none" stroke="#e53e3e" stroke-width="9"
-          stroke-dasharray="{d_arc:.2f} {C_d:.2f}" stroke-dashoffset="-{h_arc:.2f}"
+        <circle cx="42" cy="42" r="{R_d}" fill="none" stroke="#ff7070" stroke-width="9"
+          stroke-dasharray="{d_arc:.2f} {C_d:.2f}" stroke-dashoffset="-{h_arc:.2f}"  <!-- offset by healthy arc so diseased arc follows on -->
           stroke-linecap="round" style="opacity:{1 if dc > 0 else 0};"/>
       </svg>
       <div class="donut-lgd">
         <div class="donut-big">{h_pct}%</div>
         <div class="donut-sub">Field Healthy</div>
-        <div class="donut-item" style="margin-top:.4rem;"><div class="donut-dot" style="background:#22a559;"></div>Healthy ({hc})</div>
-        <div class="donut-item"><div class="donut-dot" style="background:#e53e3e;"></div>Diseased ({dc})</div>
+        <div class="donut-item" style="margin-top:.4rem;"><div class="donut-dot" style="background:#7ddb8f;"></div>Healthy ({hc})</div>
+        <div class="donut-item"><div class="donut-dot" style="background:#ff7070;"></div>Diseased ({dc})</div>
       </div>
     </div>
   </div>
@@ -1036,15 +1135,14 @@ def main_app():
 
         with st.expander("📈 Probability Distribution — All Results"):
             for r in results:
-                st.markdown(f"**{r['fname']}**")
-                status = r["status"]
+                st.markdown(f"**{r['fname']}**", unsafe_allow_html=False)
                 for cls in CLASSES:
                     p = r["all_probs"][cls]
-                    fill_cls = {"ok": "prob-ok", "warn": "prob-warn", "bad": "prob-bad"}.get(status, "prob-hi") if cls == r["label"] else ""
-                    st.markdown(f'<div class="prob-row"><span class="prob-name">{cls}</span><div class="prob-tr"><div class="prob-fill {fill_cls}" style="width:{p*100:.1f}%"></div></div><span class="prob-pct">{p*100:.1f}%</span></div>', unsafe_allow_html=True)
+                    hi = "prob-hi" if cls == r["label"] else ""
+                    st.markdown(f'<div class="prob-row"><span class="prob-name">{cls}</span><div class="prob-tr"><div class="prob-fill {hi}" style="width:{p*100:.1f}%"></div></div><span class="prob-pct">{p*100:.1f}%</span></div>', unsafe_allow_html=True)
 
         # 6. Farmer Intelligence
-        st.markdown("<hr class='pk-divider'>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">👨‍🌾 Farmer Intelligence</div>', unsafe_allow_html=True)
         seen2 = set()
         for r in results:
@@ -1060,7 +1158,7 @@ def main_app():
 """, unsafe_allow_html=True)
 
         # 7. Weather Risk
-        st.markdown("<hr class='pk-divider'>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">🌦️ Weather-Based Disease Risk</div>', unsafe_allow_html=True)
         st.markdown('<div class="weather-chips">' + "".join(
             f'<div class="wchip"><div class="wc-ico">{w["icon"]}</div><div class="wc-lbl">{w["label"]}</div><div class="wc-risk" style="color:{w["risk_color"]};">{w["risk"]}</div></div>'
@@ -1071,17 +1169,17 @@ def main_app():
         rc = w_info["risk_color"]
         trigger = results[0]["info"]["weather_trigger"] if results else ""
         st.markdown(f"""
-<div class="risk-result" style="border-left:3px solid {rc};">
-  {w_info['icon']} &nbsp;<strong style="color:{rc};">{w_info['risk']} Risk</strong> &nbsp;·&nbsp;
+<div class="risk-result" style="background:var(--bg3);border-left:2px solid {rc};border-radius:10px;">
+  {w_info['icon']} &nbsp;<strong style="color:{rc};">{w_info['risk']} RISK</strong> &nbsp;·&nbsp;
   Index: <strong style="color:{rc};">{w_info['risk_pct']}%</strong><br>
-  <span style="font-size:.75rem;color:var(--tx3);">{w_info['desc']}</span><br>
-  <span style="font-size:.73rem;color:var(--tx4);margin-top:.4rem;display:block;">{trigger}</span>
+  <span style="font-size:.75rem;color:var(--c3);">{w_info['desc']}</span><br>
+  <span style="font-size:.73rem;color:var(--c4);margin-top:.4rem;display:block;">{trigger}</span>
 </div>
 """, unsafe_allow_html=True)
 
     # History
     if st.session_state.history:
-        st.markdown("<hr class='pk-divider'>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="sec-lbl">📜 Scan History</div>', unsafe_allow_html=True)
         for h in st.session_state.history[:8]:
             tc = {"ok": "ht-ok", "warn": "ht-warn", "bad": "ht-bad"}.get(h["status"], "ht-ok")
@@ -1104,18 +1202,18 @@ def main_app():
 
     st.markdown("""
 <div class="app-footer">
-  🌽 &nbsp;<strong>CornScan AI v6.0 Ultimate — Pink Edition</strong><br>
+  🌽 &nbsp;<strong>CornScan AI v6.0 Ultimate</strong><br>
   TensorFlow / Keras · CNN Plant Disease Detection · Grad-CAM Heatmaps<br>
-  <span style="opacity:.55;">No data leaves your device · For research &amp; field-scouting use</span>
+  <span style="opacity:.45;">No data leaves your device · For research & field-scouting use</span>
 </div>
 """, unsafe_allow_html=True)
 
 
-# ── Router ──
+# Router
+# === PAGE ROUTER: dispatches to loading/landing/main based on session_state.page ===
 if st.session_state.page == "loading":
     loading_page()
 elif st.session_state.page == "landing":
     landing_page()
 else:
     main_app()
-     
